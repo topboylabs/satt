@@ -82,6 +82,15 @@ main{flex:1;min-height:0;position:relative}
 .iconbtn{flex:none;width:44px;height:44px;border-radius:50%;border:0;display:grid;place-items:center;background:var(--surface2);color:var(--text)}
 .iconbtn.send{background:var(--accent);color:var(--accent-ink)}
 .iconbtn:disabled{opacity:.4}
+.iconbtn.mic{background:var(--accent);color:var(--accent-ink)}
+.iconbtn.mic.rec{background:var(--danger);color:#fff;animation:pulse 1.4s ease-in-out infinite}
+.iconbtn.mic.busy{opacity:.6}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(181,87,75,.45)}50%{box-shadow:0 0 0 9px rgba(181,87,75,0)}}
+#recBar{display:none;align-items:center;gap:10px;padding:8px 14px 0;font-size:14px;color:var(--muted)}
+#recBar.show{display:flex}
+#recBar .lvl{flex:1;height:6px;border-radius:99px;background:var(--surface2);overflow:hidden}
+#recBar .lvl span{display:block;height:100%;width:0;background:var(--danger);border-radius:99px;transition:width .08s}
+#recBar button{border:0;background:none;color:var(--muted);font-size:14px}
 .iconbtn svg{width:22px;height:22px}
 #preview{display:none;padding:8px 12px 0}
 #preview.show{display:flex;align-items:center;gap:10px}
@@ -235,6 +244,7 @@ a{color:var(--accent)}
       <div id="localBanner" class="banner tap" hidden><b>Zeit für eine Sicherungsdatei</b>Tippen, um sie auf dem iPhone zu speichern.</div>
       <div class="scroll" id="chatScroll"><div id="msgs"></div></div>
       <div id="preview"><img alt=""><button id="rmImg">Foto entfernen</button></div>
+      <div id="recBar"><span id="recTime">0:00</span><div class="lvl"><span id="recLvl"></span></div><button id="recCancel">Abbrechen</button></div>
       <div class="chips" id="chips">
         <button class="chip" data-t="Das war alles für heute">Das war alles für heute</button>
         <button class="chip" data-t="Gewicht heute: " data-fill>Gewicht eintragen</button>
@@ -247,7 +257,10 @@ a{color:var(--accent)}
         </button>
         <input type="file" id="file" accept="image/*,text/plain,.txt" hidden>
         <textarea id="input" rows="1" placeholder="Was hast du gegessen?"></textarea>
-        <button class="iconbtn send" id="sendBtn" aria-label="Senden">
+        <button class="iconbtn mic" id="micBtn" aria-label="Spracheingabe">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+        </button>
+        <button class="iconbtn send" id="sendBtn" aria-label="Senden" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
         </button>
       </div>
@@ -326,6 +339,12 @@ a{color:var(--accent)}
       <label class="f" style="margin-top:4px"><textarea id="sPrompt" spellcheck="false"></textarea></label>
           </div>
 
+    <label class="f">Nach Spracheingabe
+      <select id="sVoiceSend">
+        <option value="review">Text erst anzeigen, dann selbst senden</option>
+        <option value="send">Sofort senden</option>
+      </select>
+    </label>
     <label class="f">Wie viele letzte Nachrichten Gemini wörtlich sieht
       <input type="number" id="sCtx" min="6" max="200" inputmode="numeric">
     </label>
@@ -1106,6 +1125,81 @@ async function refreshProtein(){
   pill.textContent = `Protein ${p} / ${PROTEIN_GOAL} g`; pill.classList.toggle('ok', p >= PROTEIN_GOAL*0.9);
 }
 
+/* ---------------- Spracheingabe (Gemini Speech-to-Text) ---------------- */
+// Aufnahme als WAV (16 kHz mono): funktioniert in Safari zuverlässig und Gemini versteht das Format sicher.
+let rec = null;
+const fmtSec = s => `${Math.floor(s / 60)}:${pad(s % 60)}`;
+async function startRec(){
+  if (!settings.key) { alert('Bitte zuerst den Gemini API-Schlüssel in den Einstellungen eintragen.'); return; }
+  if (!navigator.mediaDevices?.getUserMedia) { alert('Dieses Gerät erlaubt hier keine Mikrofon-Aufnahme.'); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, channelCount:1}}); }
+  catch { alert('Kein Zugriff aufs Mikrofon. Bitte in den iPhone-Einstellungen erlauben (Einstellungen → Safari → Mikrofon) und erneut versuchen.'); return; }
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  await ctx.resume().catch(() => {});
+  const src = ctx.createMediaStreamSource(stream);
+  const proc = ctx.createScriptProcessor(4096, 1, 1);
+  const bufs = [];
+  proc.onaudioprocess = e => { const d = e.inputBuffer.getChannelData(0); bufs.push(new Float32Array(d));
+    let peak = 0; for (let i = 0; i < d.length; i += 16) peak = Math.max(peak, Math.abs(d[i])); $('#recLvl').style.width = Math.min(100, peak * 160) + '%'; };
+  src.connect(proc); proc.connect(ctx.destination);
+  rec = {stream, ctx, src, proc, bufs, rate:ctx.sampleRate, start:Date.now()};
+  rec.timer = setInterval(() => { const s = Math.floor((Date.now() - rec.start) / 1000); $('#recTime').textContent = fmtSec(s); if (s >= 120) stopRec(true); }, 250);
+  $('#micBtn').classList.add('rec'); $('#micBtn').setAttribute('aria-label', 'Aufnahme beenden');
+  $('#recTime').textContent = '0:00'; $('#recBar').classList.add('show'); input.placeholder = 'Ich höre zu …'; toggleAction();
+}
+function endRec(){
+  const r = rec; rec = null; if (!r) return null;
+  clearInterval(r.timer); try { r.src.disconnect(); r.proc.disconnect(); } catch {}
+  r.stream.getTracks().forEach(t => t.stop()); r.ctx.close().catch(() => {});
+  $('#micBtn').classList.remove('rec'); $('#micBtn').setAttribute('aria-label', 'Spracheingabe');
+  $('#recBar').classList.remove('show'); $('#recLvl').style.width = '0'; input.placeholder = 'Was hast du gegessen?'; toggleAction();
+  return r;
+}
+function toWav(bufs, rate){
+  const len = bufs.reduce((a, b) => a + b.length, 0), data = new Float32Array(len); let o = 0; for (const b of bufs) { data.set(b, o); o += b.length; }
+  const target = 16000, ratio = rate / target, n = Math.floor(len / ratio), pcm = new Int16Array(n);
+  for (let i = 0; i < n; i++) { const a = Math.floor(i * ratio), b = Math.min(len, Math.floor((i + 1) * ratio)); let s = 0; for (let j = a; j < b; j++) s += data[j]; const v = Math.max(-1, Math.min(1, s / Math.max(1, b - a))); pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff; }
+  const buf = new ArrayBuffer(44 + pcm.length * 2), dv = new DataView(buf);
+  const w = (p, str) => [...str].forEach((c, i) => dv.setUint8(p + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); dv.setUint32(4, 36 + pcm.length * 2, true); w(8, 'WAVE'); w(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, target, true); dv.setUint32(28, target * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, 'data'); dv.setUint32(40, pcm.length * 2, true);
+  new Int16Array(buf, 44).set(pcm); return new Uint8Array(buf);
+}
+async function stopRec(){
+  const r = endRec(); if (!r) return;
+  if (Date.now() - r.start < 700 || !r.bufs.length) return; // versehentlich getippt
+  const mic = $('#micBtn'); mic.classList.add('busy'); mic.disabled = true; input.placeholder = 'Schreibe ab …';
+  try {
+    const text = await transcribe(u8ToB64(toWav(r.bufs, r.rate)));
+    if (!text) { alert('Ich habe leider nichts verstanden. Versuch es bitte nochmal.'); return; }
+    input.value = (input.value.trim() ? input.value.trim() + ' ' : '') + text; autoGrow();
+    if (LS.get('voiceSend', 'review') === 'send') send(); else input.focus();
+  } catch (e) { alert(e.message || String(e)); }
+  finally { mic.classList.remove('busy'); mic.disabled = false; input.placeholder = 'Was hast du gegessen?'; toggleAction(); }
+}
+async function transcribe(b64){
+  const body = {
+    contents:[{role:'user', parts:[
+      {text:'Transkribiere diese Sprachaufnahme wörtlich auf Deutsch. Gib ausschließlich den gesprochenen Text aus, ohne Anführungszeichen, Kommentare oder Zusammenfassung. Schreibe Zahlen und Mengen als Ziffern (z. B. 150 g, 3 × 10, 52,5 kg). Ist nichts Verständliches zu hören, gib einen leeren Text aus.'},
+      {inlineData:{mimeType:'audio/wav', data:b64}}]}],
+    generationConfig:{temperature:0}
+  };
+  const noThink = LS.get('noThinkModels', []);
+  if (!noThink.includes(settings.model)) body.generationConfig.thinkingConfig = {thinkingLevel:'low'};
+  const post = b => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(settings.model)}:generateContent`, {
+    method:'POST', headers:{'Content-Type':'application/json','x-goog-api-key':settings.key}, body:JSON.stringify(b)});
+  let res = await post(body), data = await res.json().catch(() => ({}));
+  if (res.status === 400 && body.generationConfig.thinkingConfig && /think/i.test(data?.error?.message || '')) {
+    LS.set('noThinkModels', [...noThink, settings.model]); delete body.generationConfig.thinkingConfig;
+    res = await post(body); data = await res.json().catch(() => ({}));
+  }
+  if (!res.ok) throw new Error('Spracheingabe fehlgeschlagen: ' + (data?.error?.message || res.status));
+  return (data.candidates?.[0]?.content?.parts || []).filter(p => !p.thought && p.text).map(p => p.text).join('').trim().replace(/^["„]|["“]$/g, '');
+}
+$('#micBtn').onclick = () => rec ? stopRec() : startRec();
+$('#recCancel').onclick = () => endRec();
+
 /* Foto verkleinern */
 function loadImage(file){
   return new Promise((res, rej) => { const url = URL.createObjectURL(file); const im = new Image();
@@ -1124,14 +1218,16 @@ $('#file').onchange = async e => {
   }
   try { const im = await loadImage(f);
     pendingImg = {full: resize(im, 1280, 0.82), thumb: resize(im, 640, 0.75)};
-    $('#preview img').src = pendingImg.thumb; $('#preview').classList.add('show'); input.focus();
+    $('#preview img').src = pendingImg.thumb; $('#preview').classList.add('show'); toggleAction(); input.focus();
   } catch { alert('Das Foto konnte nicht geladen werden.'); }
 };
-function clearImg(){ pendingImg = null; $('#preview').classList.remove('show'); }
+function clearImg(){ pendingImg = null; $('#preview').classList.remove('show'); toggleAction(); }
 $('#rmImg').onclick = clearImg;
 
-function autoGrow(){ input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 140) + 'px'; }
+function autoGrow(){ input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 140) + 'px'; toggleAction(); }
+function toggleAction(){ const has = !!(input.value.trim() || pendingImg); $('#sendBtn').hidden = !has || !!rec; $('#micBtn').hidden = has && !rec; }
 input.addEventListener('input', autoGrow);
+toggleAction();
 input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); send(); } });
 sendBtn.onclick = send;
 $$('.chip').forEach(c => c.onclick = () => {
@@ -1382,7 +1478,7 @@ function loadSettingsUI(){
   const m = settings.model;
   if (KNOWN_MODELS.includes(m)) { $('#sModel').value = m; $('#customWrap').hidden = true; }
   else { $('#sModel').value = 'custom'; $('#customWrap').hidden = false; $('#sModelCustom').value = m; }
-  $('#sPrompt').value = settings.prompt; $('#sCtx').value = settings.ctx; $('#sThink').value = LS.get('think','low'); renderPause();
+  $('#sPrompt').value = settings.prompt; $('#sCtx').value = settings.ctx; $('#sThink').value = LS.get('think','low'); $('#sVoiceSend').value = LS.get('voiceSend','review'); renderPause();
   $('#gRepo').value = LS.get('gRepo',''); $('#gToken').value = cloud.token; $('#gPass').value = cloud.pass; renderBackupStatus();
   $('#sLocalRemind').value = String(LS.get('localRemind', 3)); renderLocalStatus(); renderCheckStatus();
 }
@@ -1397,7 +1493,7 @@ function saveSettings(){
   const p = $('#sPrompt').value; const def = $('#defaultPrompt').textContent;
   if (p.trim() && p !== def) LS.set('prompt', p); else localStorage.removeItem('coach.prompt');
   const c = parseInt($('#sCtx').value, 10); LS.set('ctx', isNaN(c) ? 30 : Math.min(200, Math.max(6, c)));
-  LS.set('think', $('#sThink').value);
+  LS.set('think', $('#sThink').value); LS.set('voiceSend', $('#sVoiceSend').value);
   saveSettingsFields();
   if (cloud.on && !LS.get('gLast', 0)) scheduleBackup(500);
   if (!hadKey && settings.key) renderChat();
