@@ -116,6 +116,11 @@ main{flex:1;min-height:0;position:relative}
 .mtable thead th{font-size:13px;color:var(--muted);font-weight:550}
 .mtable thead th button{border:0;background:none;color:inherit;padding:0;font-weight:inherit;text-decoration:underline dotted;text-underline-offset:3px}
 .delta{display:block;font-size:11.5px;color:var(--muted)}
+.unit{font-weight:400;color:var(--muted);font-size:12.5px;margin-left:4px}
+.status-line{font-size:13.5px;margin:10px 4px}
+.status-line.ok{color:var(--accent)}
+.status-line.bad{color:var(--danger)}
+.banner.tap{cursor:pointer}
 .btn{border:0;background:var(--accent);color:var(--accent-ink);padding:12px 18px;border-radius:14px;font-weight:600;width:100%;font-size:16px}
 .btn.ghost{background:var(--surface2);color:var(--text)}
 .btn.danger{background:transparent;color:var(--danger);border:1px solid var(--line)}
@@ -164,6 +169,7 @@ a{color:var(--accent)}
         <b>Tracking pausiert</b>
         Zwei Tage in Folge waren anstrengend. Wie in deinem Plan festgelegt: zurück zu Erhaltung und intuitivem Essen. Der Chat ist weiter für dich da.
       </div>
+      <div id="backupBanner" class="banner tap" hidden></div>
       <div class="scroll" id="chatScroll"><div id="msgs"></div></div>
       <div id="preview"><img alt=""><button id="rmImg">Foto entfernen</button></div>
       <div class="chips" id="chips">
@@ -231,6 +237,13 @@ a{color:var(--accent)}
         <option value="custom">Anderes Modell…</option>
       </select>
     </label>
+    <label class="f">Antworten
+      <select id="sThink">
+        <option value="low">Schnell (empfohlen)</option>
+        <option value="medium">Gründlicher (etwas langsamer)</option>
+        <option value="high">Sehr gründlich (langsam)</option>
+      </select>
+    </label>
     <label class="f" id="customWrap" hidden>Modell-ID
       <input id="sModelCustom" autocapitalize="off" spellcheck="false" placeholder="z. B. gemini-3.8-flash">
     </label>
@@ -250,6 +263,23 @@ a{color:var(--accent)}
       <p class="hint" style="margin-top:0">Die Daten liegen nur auf diesem iPhone. Sichere sie ab und zu, z. B. in iCloud Drive.</p>
       <div class="row"><button class="btn ghost" id="exportBtn">Sichern</button><button class="btn ghost" id="importBtn">Wiederherstellen</button></div>
       <input type="file" id="importFile" hidden>
+    </div>
+
+    <div class="section">
+      <h4>Cloud-Sicherung (verschlüsselt)</h4>
+      <p class="hint" style="margin-top:0">Satt sichert nach jeder Änderung automatisch in ein <b>privates</b> GitHub-Repository. Alles wird schon auf dem iPhone mit deinem Passwort verschlüsselt. Ohne das Passwort kann niemand die Daten lesen, auch GitHub nicht.</p>
+      <label class="f">Repository (Name/Repo)
+        <input id="gRepo" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="topboylabs/satt-daten">
+      </label>
+      <label class="f">GitHub-Token
+        <input type="password" id="gToken" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…">
+      </label>
+      <label class="f">Sicherungs-Passwort
+        <input type="password" id="gPass" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+      </label>
+      <p class="hint">Das Passwort unbedingt im Passwort-Manager speichern. Ohne es lässt sich die Sicherung nicht öffnen, auch nicht von mir.</p>
+      <div class="row"><button class="btn ghost" id="gNow">Jetzt sichern</button><button class="btn ghost" id="gRestore">Aus Cloud laden</button></div>
+      <p class="status-line" id="gStatus"></p>
     </div>
 
     <div class="section">
@@ -396,6 +426,12 @@ const settings = {
   get prompt(){ return LS.get('prompt', null) ?? $('#defaultPrompt').textContent; },
   get ctx(){ return LS.get('ctx', 30); },
   get paused(){ return LS.get('paused', false); }
+};
+const cloud = {
+  get repo(){ return LS.get('gRepo','').trim().replace(/^https?:\/\/github\.com\//,'').replace(/\/$/,''); },
+  get token(){ return LS.get('gToken',''); },
+  get pass(){ return LS.get('gPass',''); },
+  get on(){ return !!(this.repo && this.token && this.pass); }
 };
 
 /* ---------------- Markdown (klein, sicher) ---------------- */
@@ -612,10 +648,20 @@ async function callGemini(userText, image){
     contents,
     generationConfig: {responseMimeType:'application/json', temperature:0.4}
   };
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(settings.model)}:generateContent`, {
-    method:'POST', headers:{'Content-Type':'application/json','x-goog-api-key':key}, body:JSON.stringify(body)
+  // Denktiefe: "low" antwortet deutlich schneller. Kennt ein Modell das Feld nicht, ohne erneut versuchen.
+  const think = LS.get('think', 'low');
+  const noThink = LS.get('noThinkModels', []);
+  if (think !== 'default' && !noThink.includes(settings.model)) body.generationConfig.thinkingConfig = {thinkingLevel: think};
+  const post = b => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(settings.model)}:generateContent`, {
+    method:'POST', headers:{'Content-Type':'application/json','x-goog-api-key':key}, body:JSON.stringify(b)
   });
-  const data = await res.json().catch(() => ({}));
+  let res = await post(body);
+  let data = await res.json().catch(() => ({}));
+  if (res.status === 400 && body.generationConfig.thinkingConfig && /think/i.test(data?.error?.message || '')) {
+    LS.set('noThinkModels', [...noThink, settings.model]);
+    delete body.generationConfig.thinkingConfig;
+    res = await post(body); data = await res.json().catch(() => ({}));
+  }
   if (!res.ok) {
     const msg = data?.error?.message || `HTTP ${res.status}`;
     if (res.status === 400 && /API key/i.test(msg)) throw new Error('Der API-Schlüssel wird nicht akzeptiert. Bitte in den Einstellungen prüfen.');
@@ -702,6 +748,7 @@ async function talk(text, full){
   try {
     const {reply, ops} = await callGemini(text, full);
     await applyOps(ops);
+    scheduleBackup();
     const r = {role:'model', ts:Date.now(), text: reply || '(verbucht)'};
     r.id = await add('messages', r);
     hideTyping(); appendMsg(r); toBottom(); refreshProtein();
@@ -796,7 +843,7 @@ async function renderMeasures(){
     const v = m[k]; const prev = i > 0 ? ms[i-1][k] : null;
     const diff = (v != null && prev != null) ? +(v - prev).toFixed(2) : null;
     const ds = diff == null ? '' : `<span class="delta">${diff > 0 ? '+' : diff < 0 ? '−' : '±'}${fmtNum(Math.abs(diff), 2)}</span>`;
-    return `<td>${v != null ? fmtNum(v, 2) : '–'}${ds}</td>`; }).join('')}</tr>`).join('');
+    return `<td>${v != null ? fmtNum(v, 2) + ' ' + unit : '–'}${ds}</td>`; }).join('')}</tr>`).join('');
   t.innerHTML = head + `<tbody>${rows}</tbody>`;
   $$('[data-edit]', t).forEach(b => b.onclick = () => openMeasure(b.dataset.edit));
   const wrap = $('.mtable-wrap'); requestAnimationFrame(() => wrap.scrollLeft = wrap.scrollWidth);
@@ -818,11 +865,11 @@ $('#mSave').onclick = async () => {
   const date = $('#mDate').value || isoDate(); const m = {date};
   $$('#mFields input').forEach(i => { const v = num(i.value.replace(',', '.')); if (v != null) m[i.dataset.k] = v; });
   if (editingMeasure && editingMeasure !== date) await del('measures', editingMeasure);
-  await put('measures', m); closeSheets(); renderMeasures();
+  await put('measures', m); closeSheets(); renderMeasures(); scheduleBackup();
 };
 $('#mDelete').onclick = async () => {
   if (!editingMeasure || !confirm('Diese Messung löschen?')) return;
-  await del('measures', editingMeasure); closeSheets(); renderMeasures();
+  await del('measures', editingMeasure); closeSheets(); renderMeasures(); scheduleBackup();
 };
 
 /* ---------------- Sheets & Navigation ---------------- */
@@ -850,7 +897,8 @@ function loadSettingsUI(){
   const m = settings.model;
   if (KNOWN_MODELS.includes(m)) { $('#sModel').value = m; $('#customWrap').hidden = true; }
   else { $('#sModel').value = 'custom'; $('#customWrap').hidden = false; $('#sModelCustom').value = m; }
-  $('#sPrompt').value = settings.prompt; $('#sCtx').value = settings.ctx; renderPause();
+  $('#sPrompt').value = settings.prompt; $('#sCtx').value = settings.ctx; $('#sThink').value = LS.get('think','low'); renderPause();
+  $('#gRepo').value = LS.get('gRepo',''); $('#gToken').value = cloud.token; $('#gPass').value = cloud.pass; renderBackupStatus();
 }
 $('#sModel').onchange = () => { $('#customWrap').hidden = $('#sModel').value !== 'custom'; };
 function saveSettings(){
@@ -862,6 +910,9 @@ function saveSettings(){
   const p = $('#sPrompt').value; const def = $('#defaultPrompt').textContent;
   if (p.trim() && p !== def) LS.set('prompt', p); else localStorage.removeItem('coach.prompt');
   const c = parseInt($('#sCtx').value, 10); LS.set('ctx', isNaN(c) ? 30 : Math.min(200, Math.max(6, c)));
+  LS.set('think', $('#sThink').value);
+  saveSettingsFields();
+  if (cloud.on && !LS.get('gLast', 0)) scheduleBackup(500);
   if (!hadKey && settings.key) renderChat();
 }
 $('#resumeBtn').onclick = () => {
@@ -871,8 +922,7 @@ $('#resumeBtn').onclick = () => {
 
 /* Sicherung: als kodierte Datei, damit Zahlen nicht im Klartext lesbar sind */
 $('#exportBtn').onclick = async () => {
-  const dump = {v:1, at:new Date().toISOString(), settings:{model:settings.model, prompt:LS.get('prompt',null), ctx:settings.ctx, paused:settings.paused, resumedAt:LS.get('resumedAt',null)}};
-  for (const s of ['messages','meals','days','measures','training']) dump[s] = await all(s);
+  const dump = await buildDump(true);
   const enc = btoa(unescape(encodeURIComponent(JSON.stringify(dump))));
   const name = `satt-sicherung-${isoDate()}.satt`;
   const file = new File([enc], name, {type:'text/plain'});
@@ -887,11 +937,7 @@ $('#importFile').onchange = async e => {
     const txt = (await f.text()).trim();
     const dump = JSON.parse(txt.startsWith('{') ? txt : decodeURIComponent(escape(atob(txt))));
     if (!confirm('Alle aktuellen Daten durch die Sicherung ersetzen?')) return;
-    for (const s of ['messages','meals','days','measures','training']) { await clear(s); for (const r of (dump[s] || [])) await put(s, r); }
-    const st = dump.settings || {};
-    if (st.model) LS.set('model', st.model); if (st.prompt) LS.set('prompt', st.prompt);
-    if (st.ctx) LS.set('ctx', st.ctx); LS.set('paused', !!st.paused); if (st.resumedAt) LS.set('resumedAt', st.resumedAt);
-    loadSettingsUI(); renderChat(); alert('Sicherung wiederhergestellt.');
+    await importDump(dump); alert('Sicherung wiederhergestellt.');
   } catch { alert('Diese Datei konnte nicht gelesen werden.'); }
 };
 $('#wipeBtn').onclick = async () => {
@@ -899,6 +945,137 @@ $('#wipeBtn').onclick = async () => {
   for (const s of ['messages','meals','days','measures','training']) await clear(s);
   LS.set('paused', false); LS.set('seeded', false); await seed(); renderPause(); renderChat(); closeSheets();
 };
+
+async function buildDump(withImages){
+  const dump = {v:1, app:'satt', at:new Date().toISOString(), settings:{model:settings.model, prompt:LS.get('prompt',null), ctx:settings.ctx, paused:settings.paused, resumedAt:LS.get('resumedAt',null)}};
+  for (const s of ['messages','meals','days','measures','training']) dump[s] = await all(s);
+  if (!withImages) dump.messages = dump.messages.map(m => m.img ? {...m, img:null, hadImg:true} : m);
+  return dump;
+}
+async function importDump(dump){
+  for (const s of ['messages','meals','days','measures','training']) { await clear(s); for (const r of (dump[s] || [])) await put(s, r); }
+  const st = dump.settings || {};
+  if (st.model) LS.set('model', st.model); if (st.prompt) LS.set('prompt', st.prompt);
+  if (st.ctx) LS.set('ctx', st.ctx); LS.set('paused', !!st.paused); if (st.resumedAt) LS.set('resumedAt', st.resumedAt);
+  LS.set('seeded', true);
+  loadSettingsUI(); renderPause(); await renderChat(); scheduleBackup();
+}
+
+/* ---------------- Verschlüsselte Cloud-Sicherung (GitHub) ---------------- */
+const KDF_ITER = 600000;
+let keyCache = null; // {pass, salt, key}
+const u8ToB64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+const b64ToU8 = b => Uint8Array.from(atob(b), c => c.charCodeAt(0));
+async function deriveKey(pass, salt){
+  if (keyCache && keyCache.pass === pass && keyCache.salt === u8ToB64(salt)) return keyCache.key;
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({name:'PBKDF2', salt, iterations:KDF_ITER, hash:'SHA-256'}, base, {name:'AES-GCM', length:256}, false, ['encrypt','decrypt']);
+  keyCache = {pass, salt:u8ToB64(salt), key}; return key;
+}
+async function encryptObj(obj){
+  let saltB64 = LS.get('gSalt', null);
+  if (!saltB64) { saltB64 = u8ToB64(crypto.getRandomValues(new Uint8Array(16))); LS.set('gSalt', saltB64); }
+  const salt = b64ToU8(saltB64), iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(cloud.pass, salt);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv}, key, new TextEncoder().encode(JSON.stringify(obj))));
+  return {app:'satt', v:1, enc:'AES-256-GCM', kdf:'PBKDF2-SHA256', iter:KDF_ITER, salt:saltB64, iv:u8ToB64(iv), at:new Date().toISOString(), data:u8ToB64(ct)};
+}
+async function decryptEnv(env, pass){
+  const salt = b64ToU8(env.salt);
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({name:'PBKDF2', salt, iterations:env.iter || KDF_ITER, hash:'SHA-256'}, base, {name:'AES-GCM', length:256}, false, ['decrypt']);
+  try {
+    const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv:b64ToU8(env.iv)}, key, b64ToU8(env.data));
+    return JSON.parse(new TextDecoder().decode(pt));
+  } catch { throw new Error('Das Passwort passt nicht zu dieser Sicherung.'); }
+}
+async function gh(path, opts = {}){
+  const res = await fetch(`https://api.github.com/repos/${cloud.repo}/contents/${path}`, {
+    ...opts, cache:'no-store',
+    headers:{'Authorization':`Bearer ${cloud.token}`, 'Accept':opts.raw ? 'application/vnd.github.raw' : 'application/vnd.github+json', 'X-GitHub-Api-Version':'2022-11-28', ...(opts.body ? {'Content-Type':'application/json'} : {})}
+  });
+  if (res.status === 401) throw new Error('GitHub lehnt den Token ab (falsch oder abgelaufen).');
+  if (res.status === 403) throw new Error('Der Token darf nicht schreiben. Beim Token „Contents: Read and write“ erlauben.');
+  return res;
+}
+async function ghPut(path, text, guard = false){
+  let sha;
+  const head = await gh(path);
+  if (head.ok) {
+    if (guard) throw new Error('In der Cloud liegt schon eine Sicherung. Lade sie zuerst mit „Aus Cloud laden“, oder tippe „Jetzt sichern“, um sie mit den Daten dieses iPhones zu überschreiben.');
+    sha = (await head.json()).sha;
+  }
+  else if (head.status === 404) {
+    const repoRes = await fetch(`https://api.github.com/repos/${cloud.repo}`, {headers:{'Authorization':`Bearer ${cloud.token}`, 'Accept':'application/vnd.github+json'}});
+    if (repoRes.status === 404) throw new Error(`Repository „${cloud.repo}“ nicht gefunden, oder der Token hat keinen Zugriff darauf.`);
+  } else throw new Error(`GitHub-Fehler ${head.status}.`);
+  const res = await gh(path, {method:'PUT', body:JSON.stringify({message:`Sicherung ${new Date().toLocaleString('de-DE')}`, content:btoa(text), ...(sha ? {sha} : {})})});
+  if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error('GitHub: ' + (j.message || res.status)); }
+}
+let backupTimer = null, backupRunning = false, backupAgain = false;
+function scheduleBackup(delay = 4000){
+  if (!cloud.on) return;
+  clearTimeout(backupTimer); backupTimer = setTimeout(runBackup, delay);
+}
+async function runBackup(force = false){
+  if (!cloud.on) return false;
+  if (backupRunning) { backupAgain = true; return false; }
+  backupRunning = true; renderBackupStatus('läuft');
+  try {
+    const dump = await buildDump(false);
+    if (!force && !dump.meals.length && !dump.days.length && !dump.measures.length && !dump.training.length) { backupRunning = false; renderBackupStatus(); return false; }
+    const env = JSON.stringify(await encryptObj(dump));
+    // Schutz: ein frisch eingerichtetes Gerät überschreibt nie automatisch eine bestehende Cloud-Sicherung
+    await ghPut('satt/aktuell.json', env, !force && !LS.get('gLast', 0));
+    await ghPut(`satt/verlauf/${isoDate()}.json`, env);
+    LS.set('gLast', Date.now()); LS.set('gErr', null);
+    return true;
+  } catch (e) {
+    LS.set('gErr', e.message || String(e)); return false;
+  } finally {
+    backupRunning = false; renderBackupStatus(); renderBackupBanner();
+    if (backupAgain) { backupAgain = false; scheduleBackup(1500); }
+  }
+}
+function renderBackupStatus(state){
+  const el = $('#gStatus'); if (!el) return;
+  const last = LS.get('gLast', 0), err = LS.get('gErr', null);
+  el.className = 'status-line';
+  if (!cloud.on) { el.textContent = 'Noch nicht eingerichtet.'; return; }
+  if (state === 'läuft') { el.textContent = 'Sichere gerade …'; return; }
+  if (err) { el.classList.add('bad'); el.textContent = 'Letzter Versuch fehlgeschlagen: ' + err; return; }
+  if (last) { const d = new Date(last); el.classList.add('ok');
+    el.textContent = `✓ Zuletzt gesichert: ${isoDate(d) === isoDate() ? 'heute' : fmtDate(isoDate(d))} um ${hhmm(d)} Uhr`; return; }
+  el.textContent = 'Noch keine Sicherung.';
+}
+function renderBackupBanner(){
+  const b = $('#backupBanner'); const err = LS.get('gErr', null), last = LS.get('gLast', 0);
+  const stale = !last || (Date.now() - last > 24*3600e3);
+  b.hidden = !(cloud.on && err && stale);
+  if (!b.hidden) b.innerHTML = `<b>Cloud-Sicherung klappt gerade nicht</b>${esc(err)} Tippen zum Prüfen.`;
+}
+$('#backupBanner').onclick = () => { loadSettingsUI(); openSheet('#settingsSheet'); };
+$('#gNow').onclick = async () => { saveSettingsFields(); if (!cloud.on) { alert('Bitte Repository, Token und Passwort ausfüllen.'); return; } await runBackup(true); };
+$('#gRestore').onclick = async () => {
+  saveSettingsFields();
+  if (!cloud.on) { alert('Bitte Repository, Token und Passwort ausfüllen.'); return; }
+  try {
+    const res = await gh('satt/aktuell.json', {raw:true});
+    if (res.status === 404) throw new Error('In diesem Repository liegt noch keine Sicherung.');
+    if (!res.ok) throw new Error(`GitHub-Fehler ${res.status}.`);
+    const env = JSON.parse(await res.text());
+    const dump = await decryptEnv(env, cloud.pass);
+    const when = new Date(env.at).toLocaleString('de-DE', {dateStyle:'medium', timeStyle:'short'});
+    if (!confirm(`Sicherung vom ${when} gefunden. Alle Daten auf diesem iPhone damit ersetzen?`)) return;
+    LS.set('gSalt', env.salt); keyCache = null; LS.set('gLast', Date.now()); LS.set('gErr', null);
+    await importDump(dump); alert('Wiederhergestellt.');
+  } catch (e) { alert(e.message || String(e)); }
+};
+function saveSettingsFields(){
+  const oldPass = cloud.pass;
+  LS.set('gRepo', $('#gRepo').value.trim()); LS.set('gToken', $('#gToken').value.trim()); LS.set('gPass', $('#gPass').value);
+  if (cloud.pass !== oldPass) { localStorage.removeItem('coach.gSalt'); keyCache = null; }
+}
 
 /* ---------------- iOS-Tastatur & Höhe ---------------- */
 function fitViewport(){
@@ -921,7 +1098,9 @@ async function seed(){
   db = await openDB();
   await seed();
   try { navigator.storage?.persist?.(); } catch {}
-  renderPause(); await renderChat();
+  renderPause(); await renderChat(); renderBackupBanner();
+  if (cloud.on && Date.now() - LS.get('gLast', 0) > 6*3600e3) scheduleBackup(3000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cloud.on && Date.now() - LS.get('gLast', 0) > 6*3600e3) scheduleBackup(2000); });
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>
