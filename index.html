@@ -170,6 +170,7 @@ a{color:var(--accent)}
         Zwei Tage in Folge waren anstrengend. Wie in deinem Plan festgelegt: zurück zu Erhaltung und intuitivem Essen. Der Chat ist weiter für dich da.
       </div>
       <div id="backupBanner" class="banner tap" hidden></div>
+      <div id="localBanner" class="banner tap" hidden><b>Zeit für eine Sicherungsdatei</b>Tippen, um sie auf dem iPhone zu speichern.</div>
       <div class="scroll" id="chatScroll"><div id="msgs"></div></div>
       <div id="preview"><img alt=""><button id="rmImg">Foto entfernen</button></div>
       <div class="chips" id="chips">
@@ -259,10 +260,19 @@ a{color:var(--accent)}
     <p class="hint">Alles Ältere kennt Gemini über die Datenbank (Mahlzeiten, Tage, Wochen, Maße, Training). Deshalb läuft der Kontext nie voll.</p>
 
     <div class="section">
-      <h4>Sicherung</h4>
-      <p class="hint" style="margin-top:0">Die Daten liegen nur auf diesem iPhone. Sichere sie ab und zu, z. B. in iCloud Drive.</p>
-      <div class="row"><button class="btn ghost" id="exportBtn">Sichern</button><button class="btn ghost" id="importBtn">Wiederherstellen</button></div>
+      <h4>Sicherungsdatei auf dem iPhone</h4>
+      <p class="hint" style="margin-top:0">Tippe auf „Datei speichern“ und wähle im nächsten Fenster <b>In Dateien sichern</b>. Dort bestimmst du den Ordner, z. B. iCloud Drive → Satt. Ist ein Sicherungs-Passwort gesetzt, wird die Datei damit verschlüsselt.</p>
+      <div class="row"><button class="btn ghost" id="exportBtn">Datei speichern</button><button class="btn ghost" id="importBtn">Wiederherstellen</button></div>
       <input type="file" id="importFile" hidden>
+      <label class="f">Erinnerung an die Sicherungsdatei
+        <select id="sLocalRemind">
+          <option value="1">Täglich</option>
+          <option value="3">Alle 3 Tage</option>
+          <option value="7">Wöchentlich</option>
+          <option value="0">Nie</option>
+        </select>
+      </label>
+      <p class="status-line" id="localStatus"></p>
     </div>
 
     <div class="section">
@@ -899,6 +909,7 @@ function loadSettingsUI(){
   else { $('#sModel').value = 'custom'; $('#customWrap').hidden = false; $('#sModelCustom').value = m; }
   $('#sPrompt').value = settings.prompt; $('#sCtx').value = settings.ctx; $('#sThink').value = LS.get('think','low'); renderPause();
   $('#gRepo').value = LS.get('gRepo',''); $('#gToken').value = cloud.token; $('#gPass').value = cloud.pass; renderBackupStatus();
+  $('#sLocalRemind').value = String(LS.get('localRemind', 3)); renderLocalStatus();
 }
 $('#sModel').onchange = () => { $('#customWrap').hidden = $('#sModel').value !== 'custom'; };
 function saveSettings(){
@@ -921,24 +932,56 @@ $('#resumeBtn').onclick = () => {
 };
 
 /* Sicherung: als kodierte Datei, damit Zahlen nicht im Klartext lesbar sind */
-$('#exportBtn').onclick = async () => {
+async function saveLocalFile(){
   const dump = await buildDump(true);
-  const enc = btoa(unescape(encodeURIComponent(JSON.stringify(dump))));
+  // Mit Sicherungs-Passwort: verschlüsselt (gleiches Format wie die Cloud). Ohne: nur kodiert.
+  const content = cloud.pass ? JSON.stringify(await encryptObj(dump)) : btoa(unescape(encodeURIComponent(JSON.stringify(dump))));
   const name = `satt-sicherung-${isoDate()}.satt`;
-  const file = new File([enc], name, {type:'text/plain'});
-  if (navigator.canShare && navigator.canShare({files:[file]})) { try { await navigator.share({files:[file], title:name}); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  const file = new File([content], name, {type:'text/plain'});
+  const done = () => { LS.set('lastLocal', Date.now()); renderLocalStatus(); renderLocalBanner(); };
+  if (navigator.canShare && navigator.canShare({files:[file]})) {
+    try { await navigator.share({files:[file], title:name}); done(); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
   const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-};
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000); done();
+}
+function renderLocalStatus(){
+  const el = $('#localStatus'); const last = LS.get('lastLocal', 0);
+  el.className = 'status-line' + (last ? ' ok' : '');
+  if (!last) { el.textContent = 'Noch keine Sicherungsdatei gespeichert.'; return; }
+  const d = new Date(last);
+  el.textContent = `✓ Letzte Sicherungsdatei: ${isoDate(d) === isoDate() ? 'heute' : fmtDate(isoDate(d))} um ${hhmm(d)} Uhr` + (cloud.pass ? ' (verschlüsselt)' : '');
+}
+async function renderLocalBanner(){
+  const days = Number(LS.get('localRemind', 3)); const last = LS.get('lastLocal', 0);
+  let due = days > 0 && Date.now() - last > days * 864e5;
+  if (due) { const n = (await all('meals')).length + (await all('measures')).length; due = n > 0; }
+  $('#localBanner').hidden = !due;
+}
+$('#exportBtn').onclick = saveLocalFile;
+$('#localBanner').onclick = saveLocalFile;
+$('#sLocalRemind').onchange = () => { LS.set('localRemind', $('#sLocalRemind').value); renderLocalBanner(); };
 $('#importBtn').onclick = () => $('#importFile').click();
 $('#importFile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   try {
     const txt = (await f.text()).trim();
-    const dump = JSON.parse(txt.startsWith('{') ? txt : decodeURIComponent(escape(atob(txt))));
+    let dump = JSON.parse(txt.startsWith('{') ? txt : decodeURIComponent(escape(atob(txt))));
+    if (dump.enc && dump.data) { // verschlüsselte Datei
+      let pass = cloud.pass, out = null;
+      try { if (pass) out = await decryptEnv(dump, pass); } catch {}
+      while (!out) {
+        pass = prompt('Diese Sicherung ist verschlüsselt. Bitte das Sicherungs-Passwort eingeben:');
+        if (pass === null) return;
+        try { out = await decryptEnv(dump, pass); } catch (err) { alert(err.message); }
+      }
+      if (!cloud.pass) LS.set('gPass', pass);
+      dump = out;
+    }
     if (!confirm('Alle aktuellen Daten durch die Sicherung ersetzen?')) return;
     await importDump(dump); alert('Sicherung wiederhergestellt.');
-  } catch { alert('Diese Datei konnte nicht gelesen werden.'); }
+  } catch (err) { console.warn(err); alert('Diese Datei konnte nicht gelesen werden.'); }
 };
 $('#wipeBtn').onclick = async () => {
   if (!confirm('Wirklich ALLE Daten löschen (Chat, Mahlzeiten, Tage, Maße, Training)? Das kann nicht rückgängig gemacht werden.')) return;
@@ -1098,7 +1141,7 @@ async function seed(){
   db = await openDB();
   await seed();
   try { navigator.storage?.persist?.(); } catch {}
-  renderPause(); await renderChat(); renderBackupBanner();
+  renderPause(); await renderChat(); renderBackupBanner(); renderLocalBanner();
   if (cloud.on && Date.now() - LS.get('gLast', 0) > 6*3600e3) scheduleBackup(3000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cloud.on && Date.now() - LS.get('gLast', 0) > 6*3600e3) scheduleBackup(2000); });
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
