@@ -147,7 +147,18 @@ main{flex:1;min-height:0;position:relative}
 .tile .val small{font-size:13px;font-weight:500;color:var(--muted);margin-left:2px}
 .tile .foot{font-size:12px;color:var(--muted);margin-top:2px}
 .tile svg{display:block;width:100%;height:30px;margin-top:6px}
-.weeknav{display:flex;align-items:center;justify-content:space-between;margin:0 0 12px}
+.weeknav{display:flex;align-items:center;justify-content:space-between;margin:8px 0 2px}
+#pbar{padding-bottom:6px;border-bottom:1px solid var(--line)}
+.useg{display:flex;gap:6px;margin-top:10px}
+.useg button{flex:1;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:6px 0;font-size:13.5px;color:var(--muted);font-weight:550}
+.useg button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--text)}
+#reportScroll.slide-l{animation:slideL .22s ease}
+#reportScroll.slide-r{animation:slideR .22s ease}
+@keyframes slideL{from{opacity:.3;transform:translateX(24px)}to{opacity:1;transform:none}}
+@keyframes slideR{from{opacity:.3;transform:translateX(-24px)}to{opacity:1;transform:none}}
+.hist td.ref,.hist th.ref,.mtable td.ref,.mtable th.ref{color:var(--muted);background:var(--surface2)}
+.mtable th small{font-weight:400}
+.frow.tap,.daycard>header[data-toggle]{cursor:pointer}
 .weeknav b{font-size:15px}
 .weeknav span{display:block;font-size:12.5px;color:var(--muted);text-align:center}
 .weeknav button{border:1px solid var(--line);background:var(--surface);width:38px;height:38px;border-radius:12px;font-size:18px}
@@ -241,6 +252,7 @@ a{color:var(--accent)}
         Zwei Tage in Folge waren anstrengend. Wie in deinem Plan festgelegt: zurück zu Erhaltung und intuitivem Essen. Der Chat ist weiter für dich da.
       </div>
       <div id="backupBanner" class="banner tap" hidden></div>
+      <div id="importBanner" class="banner" hidden><b id="impTitle">Übernehme alten Chat …</b><span id="impText"></span><div class="bar"><span id="impBar" style="width:0"></span></div></div>
       <div id="localBanner" class="banner tap" hidden><b>Zeit für eine Sicherungsdatei</b>Tippen, um sie auf dem iPhone zu speichern.</div>
       <div class="scroll" id="chatScroll"><div id="msgs"></div></div>
       <div id="preview"><img alt=""><button id="rmImg">Foto entfernen</button></div>
@@ -255,7 +267,7 @@ a{color:var(--accent)}
         <button class="iconbtn" id="camBtn" aria-label="Foto oder Textnotiz">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
         </button>
-        <input type="file" id="file" accept="image/*,text/plain,.txt" hidden>
+        <input type="file" id="file" accept="image/*,text/plain,text/markdown,.txt,.md,.markdown" hidden>
         <textarea id="input" rows="1" placeholder="Was hast du gegessen?"></textarea>
         <button class="iconbtn mic" id="micBtn" aria-label="Spracheingabe">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
@@ -275,7 +287,7 @@ a{color:var(--accent)}
         <button data-r="measures" class="on" role="tab">Maße</button>
         <button data-r="meals" role="tab">Mahlzeiten</button>
         <button data-r="training" role="tab">Training</button>
-      </div></div>
+      </div><div id="pbar"></div></div>
       <div class="scroll" id="reportScroll">
         <div class="rpane" id="r-measures">
           <div class="tiles" id="mTiles"></div>
@@ -389,6 +401,12 @@ a{color:var(--accent)}
     </div>
 
     <div class="section">
+      <h4>Alten Gemini-Chat übernehmen</h4>
+      <p class="hint" style="margin-top:0">Exportierten Chat (z. B. als .md) auswählen. Satt liest ihn in Teilen und übernimmt Mahlzeiten, Gewicht, Training, Maße und Produkte. Bereits erfasste Tage werden übersprungen.</p>
+      <div class="row"><button class="btn ghost" id="impBtn">Chat-Datei auswählen</button></div>
+      <input type="file" id="impFile" hidden>
+    </div>
+    <div class="section">
       <h4>Plausibilitätsprüfung</h4>
       <p class="hint" style="margin-top:0">Satt prüft jeden neuen Eintrag automatisch (z. B. ob Nährwerte zur Menge passen, Doppelbuchungen, Tippfehler im Training) und lässt Auffälliges von Gemini korrigieren. Einmal täglich werden zusätzlich die letzten 7 Tage geprüft.</p>
       <div class="row"><button class="btn ghost" id="checkNow">Jetzt alles prüfen</button></div>
@@ -471,7 +489,16 @@ Die Nutzerin sieht den DATENBANK-Block nicht. Zitiere daraus niemals Kalorienwer
    Korrigiere nur, was wirklich falsch ist (meal_update mit vollständiger foods-Liste, workout mit id, meal_delete bei echter Doppelbuchung). Ist ein Eintrag korrekt, bestätige ihn mit {"op":"check_ok","ref":"<ref aus dem Auftrag>"}.
    Bei Gewichts- oder Maßsprüngen nichts ändern, nur check_ok. "reply" ist hier höchstens ein kurzer Satz an die Nutzerin, ohne Kalorienzahlen; leer lassen, wenn es nichts zu sagen gibt.
 
-8) ABBRUCH-PROTOKOLL: Die App wertet die checkin-Daten aus. Steht in der DATENBANK "TRACKING PAUSIERT", dann verbuchst du KEINE Mahlzeiten mehr,
+8) IMPORTAUFTRAG: Beginnt eine Nachricht mit "=== IMPORTAUFTRAG", enthält sie einen Ausschnitt aus einem älteren Chat (vor dieser App).
+   Lies ihn vollständig und übertrage ALLE darin enthaltenen Daten als ops: Mahlzeiten (jedes Lebensmittel einzeln mit Nährwerten), Gewicht, Tagesstatus,
+   Check-in-Antworten, Trainings (mit Tag 1/2/3, Sätzen, Gewichten), Körpermaße und Produkte, deren Nährwerte genannt wurden (product_save).
+   - Jede op braucht ein explizites "date". Leite es aus Tageszeilen, Datumsangaben oder Wochentagen im Text ab. Der Hinweis "Zuletzt bekanntes Datum" hilft am Anfang.
+   - Tageszeilen enthalten oft "SYNC: <Base64>" mit den Tagessummen als JSON. Nutze sie, um deine Nährwerte pro Lebensmittel so zu wählen, dass die Tagessumme ungefähr passt.
+   - Tage, die laut Auftrag schon in der Datenbank stehen, NICHT erneut verbuchen.
+   - Nichts erfinden: Was im Text nicht vorkommt, wird nicht verbucht.
+   - "reply" bleibt leer. Zusätzlich gibst du "last_date" (das letzte Datum in diesem Ausschnitt) als Feld im JSON zurück.
+
+9) ABBRUCH-PROTOKOLL: Die App wertet die checkin-Daten aus. Steht in der DATENBANK "TRACKING PAUSIERT", dann verbuchst du KEINE Mahlzeiten mehr,
    bewertest nichts, nennst keine Zahlen, sondern begleitest ruhig in Richtung intuitives Essen und Erhaltung.
 `;
 
@@ -872,7 +899,7 @@ async function callGemini(userText, image, opts = {}){
   const body = {
     systemInstruction: {parts:[{text: settings.prompt + '\n' + APP_RULES}]},
     contents,
-    generationConfig: {responseMimeType:'application/json', temperature:0.4}
+    generationConfig: {responseMimeType:'application/json', temperature:opts.check ? 0.2 : 0.4, ...(opts.big ? {maxOutputTokens:32768} : {})}
   };
   // Denktiefe: "low" antwortet deutlich schneller. Kennt ein Modell das Feld nicht, ohne erneut versuchen.
   const think = LS.get('think', 'low');
@@ -902,11 +929,68 @@ async function callGemini(userText, image, opts = {}){
 }
 function parseModel(raw){
   let s = raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'');
-  try { const j = JSON.parse(s); return {reply: String(j.reply ?? ''), ops: Array.isArray(j.ops) ? j.ops : []}; }
+  try { const j = JSON.parse(s); return {reply: String(j.reply ?? ''), ops: Array.isArray(j.ops) ? j.ops : [], last_date: j.last_date}; }
   catch {
     const a = s.indexOf('{'), b = s.lastIndexOf('}');
-    if (a >= 0 && b > a) { try { const j = JSON.parse(s.slice(a, b+1)); return {reply:String(j.reply ?? ''), ops:Array.isArray(j.ops)?j.ops:[]}; } catch {} }
+    if (a >= 0 && b > a) { try { const j = JSON.parse(s.slice(a, b+1)); return {reply:String(j.reply ?? ''), ops:Array.isArray(j.ops)?j.ops:[], last_date:j.last_date}; } catch {} }
     return {reply: s, ops: []};
+  }
+}
+
+/* ---------------- Alten Chat übernehmen ---------------- */
+function splitChat(text, max = 12000){
+  const parts = []; let cur = '';
+  for (const block of text.replace(/\r/g, '').split(/\n(?=\s*\n)/)) {
+    if (cur.length + block.length > max && cur.length) { parts.push(cur); cur = ''; }
+    if (block.length > max) { for (let i = 0; i < block.length; i += max) parts.push(block.slice(i, i + max)); continue; }
+    cur += (cur ? '\n' : '') + block;
+  }
+  if (cur.trim()) parts.push(cur);
+  return parts;
+}
+let importing = false;
+async function importChat(text, name){
+  if (importing) return; if (!settings.key) { alert('Bitte zuerst den Gemini API-Schlüssel eintragen.'); return; }
+  importing = true;
+  const parts = splitChat(text);
+  const key = 'imp:' + name + ':' + text.length;
+  let start = 0; const saved = LS.get('importProgress', null);
+  if (saved?.key === key && saved.done < parts.length && confirm(`Dieser Import wurde bei Teil ${saved.done} von ${parts.length} unterbrochen. Dort weitermachen?`)) start = saved.done;
+  const existing = [...new Set((await all('meals')).map(m => m.date))].sort();
+  let lastDate = start ? saved.lastDate : null;
+  const total = {meals:[], workouts:[], weights:[], measures:[], products:[]};
+  const ban = $('#importBanner'); ban.hidden = false; $('#impTitle').textContent = 'Übernehme alten Chat …';
+  try {
+    for (let i = start; i < parts.length; i++) {
+      $('#impText').textContent = `Teil ${i + 1} von ${parts.length}. Bitte Satt geöffnet lassen.`;
+      $('#impBar').style.width = (i / parts.length * 100) + '%';
+      const task = `=== IMPORTAUFTRAG DER APP (Teil ${i + 1} von ${parts.length}) ===\n` +
+        `Zuletzt bekanntes Datum: ${lastDate || 'unbekannt (aus dem Text ableiten; heute ist ' + isoDate() + ')'}\n` +
+        `Tage, die schon in der Datenbank stehen (nicht erneut verbuchen): ${existing.length ? existing.join(', ') : 'keine'}\n` +
+        `--- AUSSCHNITT ALTER CHAT ---\n${parts[i]}\n--- ENDE AUSSCHNITT ---`;
+      let res, tries = 0;
+      while (true) { try { res = await callGemini(task, null, {check:true, big:true}); break; }
+        catch (e) { if (++tries >= 3) throw e; await new Promise(r => setTimeout(r, 4000 * tries)); } }
+      const t = await applyOps(res.ops);
+      for (const k in total) total[k].push(...(t[k] || []));
+      const dates = (res.ops || []).map(o => o?.date).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d || '')).sort();
+      lastDate = (/^\d{4}-\d{2}-\d{2}$/.test(res.last_date || '') ? res.last_date : null) || dates[dates.length - 1] || lastDate;
+      LS.set('importProgress', {key, done:i + 1, lastDate});
+    }
+    $('#impBar').style.width = '100%'; $('#impTitle').textContent = 'Prüfe die übernommenen Daten …'; $('#impText').textContent = '';
+    scheduleBackup();
+    await plausibility(total, {quiet:true}).catch(() => {});
+    const n = (a, s, p) => a.length ? `${a.length} ${a.length === 1 ? s : p}` : null;
+    const summary = [n(total.meals, 'Mahlzeit', 'Mahlzeiten'), n([...new Set(total.weights)], 'Gewichtswert', 'Gewichtswerte'), n(total.workouts, 'Training', 'Trainings'),
+      n(total.measures, 'Messung', 'Messungen'), n([...new Set(total.products)], 'Produkt', 'Produkte')].filter(Boolean);
+    const m = {role:'model', check:true, ts:Date.now(), text:`📥 **Alter Chat übernommen:** ${summary.join(', ') || 'keine neuen Daten gefunden'}. Alles steht jetzt unter Berichte.`};
+    m.id = await add('messages', m); if (current === 'chat') { appendMsg(m); toBottom(); }
+    LS.set('importProgress', null);
+  } catch (e) {
+    alert(`Import unterbrochen: ${e.message}\nSchick die Datei einfach nochmal, dann geht es an derselben Stelle weiter.`);
+  } finally {
+    importing = false; ban.hidden = true; refreshProtein(); scheduleBackup();
+    if (current === 'reports') renderReports(); if (current === 'days') renderDays();
   }
 }
 
@@ -993,12 +1077,18 @@ async function plausibility(scope, opts = {}){
   // Auffälliges an Gemini zur Korrektur geben (genau ein Durchgang, keine Schleife)
   const before = Object.fromEntries((await all('meals')).map(m => [m.id, m]));
   const beforeW = Object.fromEntries((await all('workouts')).map(w => [w.id, w]));
-  const task = `=== PRÜFAUFTRAG DER APP ===\nDie automatische Plausibilitätsprüfung hat folgende Einträge markiert. Prüfe jeden (ref in eckigen Klammern) und korrigiere oder bestätige ihn.\n` +
-    items.map(i => `[${i.ref}] ${i.text}`).join('\n');
-  let res;
-  try { res = await callGemini(task, null, {check:true}); } catch (e) { renderCheckStatus('Prüfung konnte Gemini nicht erreichen: ' + e.message, true); return; }
-  const touched = await applyOps(res.ops);
-  for (const i of items) await i.mark(); // gilt als geprüft, egal ob korrigiert oder bestätigt
+  const touched = {meals:[], workouts:[]}; const replies = [];
+  for (let b = 0; b < items.length; b += 25) { // in Paketen, damit auch große Importe sauber geprüft werden
+    const batch = items.slice(b, b + 25);
+    const task = `=== PRÜFAUFTRAG DER APP ===\nDie automatische Plausibilitätsprüfung hat folgende Einträge markiert. Prüfe jeden (ref in eckigen Klammern) und korrigiere oder bestätige ihn.\n` +
+      batch.map(i => `[${i.ref}] ${i.text}`).join('\n');
+    let res;
+    try { res = await callGemini(task, null, {check:true}); } catch (e) { renderCheckStatus('Prüfung konnte Gemini nicht erreichen: ' + e.message, true); return; }
+    const t = await applyOps(res.ops); touched.meals.push(...t.meals); touched.workouts.push(...t.workouts);
+    if (res.reply && !opts.quiet) replies.push(res.reply);
+    for (const i of batch) await i.mark(); // gilt als geprüft, egal ob korrigiert oder bestätigt
+  }
+  const res = {reply: replies.join('\n\n')};
   // Kurze, verständliche Meldung im Chat (ohne Kalorien)
   const lines = [];
   for (const id of touched.meals) {
@@ -1017,7 +1107,8 @@ async function plausibility(scope, opts = {}){
       .map(x => { const o = a.sets.find(o => sameExercise(o.exercise, x.exercise) && o.set === x.set); return `${x.exercise} Satz ${x.set}: ${fmtSet(o)} → ${fmtSet(x)}`; });
     lines.push(ch.length ? ch.join(', ') : `Training vom ${fmtDate(b.date)} angepasst`);
   }
-  const txt = [lines.length ? '🔎 **Automatisch korrigiert:** ' + lines.join(' · ') : '', res.reply ? scrubCalories(res.reply) : ''].filter(Boolean).join('\n\n');
+  const shownLines = lines.length > 8 ? [...lines.slice(0, 6), `und ${lines.length - 6} weitere`] : lines;
+  const txt = [lines.length ? '🔎 **Automatisch korrigiert:** ' + shownLines.join(' · ') : '', res.reply ? scrubCalories(res.reply) : ''].filter(Boolean).join('\n\n');
   if (txt) { const m = {role:'model', check:true, ts:Date.now(), text:txt}; m.id = await add('messages', m); if (current === 'chat') { appendMsg(m); toBottom(); } }
   renderCheckStatus(lines.length ? `${lines.length} Korrektur(en) übernommen.` : 'Geprüft, alles bestätigt.');
   refreshProtein(); scheduleBackup();
@@ -1213,8 +1304,10 @@ function resize(im, max, q){
 $('#camBtn').onclick = () => $('#file').click();
 $('#file').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  if (/^text\//.test(f.type) || /\.txt$/i.test(f.name)) { // Trainings- oder Ernährungsnotiz als Text
-    const t = (await f.text()).trim(); input.value = (input.value ? input.value + '\n' : '') + t; autoGrow(); input.focus(); return;
+  if (/^text\//.test(f.type) || /\.(txt|md|markdown)$/i.test(f.name)) { // Notiz oder exportierter Chat
+    const t = (await f.text()).trim();
+    if (t.length > 4000 && confirm(`„${f.name}“ ist lang und sieht nach einem exportierten Chat aus. Sollen alle Daten daraus übernommen werden (Mahlzeiten, Gewicht, Training, Maße …)?`)) { importChat(t, f.name); return; }
+    input.value = (input.value ? input.value + '\n' : '') + t; autoGrow(); input.focus(); return;
   }
   try { const im = await loadImage(f);
     pendingImg = {full: resize(im, 1280, 0.82), thumb: resize(im, 640, 0.75)};
@@ -1267,12 +1360,63 @@ async function renderDays(){
 }
 
 /* ---------------- Berichte ---------------- */
-let rSeg = 'measures', rWeek = null, rDay = null;
+let rSeg = 'measures', rDay = null, openDays = new Set();
+// Zeitraum: Woche, Monat oder Jahr. "anchor" ist ein Datum im angezeigten Zeitraum.
+const period = {unit: LS.get('rUnit', 'week'), anchor: isoDate()};
+const MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+const MON3 = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+function rangeOf(unit, anchor){
+  const a = parseISO(anchor); let s, e, label, sub;
+  if (unit === 'week') { s = parseISO(mondayOf(anchor)); e = new Date(s); e.setDate(s.getDate() + 6);
+    label = `KW ${isoWeek(s).week}`; sub = `${s.getDate()}.${s.getMonth()+1}. – ${e.getDate()}.${e.getMonth()+1}.${e.getFullYear()}`; }
+  else if (unit === 'month') { s = new Date(a.getFullYear(), a.getMonth(), 1); e = new Date(a.getFullYear(), a.getMonth() + 1, 0);
+    label = `${MONTHS[s.getMonth()]} ${s.getFullYear()}`; sub = `${e.getDate()} Tage`; }
+  else { s = new Date(a.getFullYear(), 0, 1); e = new Date(a.getFullYear(), 11, 31); label = String(s.getFullYear()); sub = 'ganzes Jahr'; }
+  const days = []; for (const d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) days.push(isoDate(d));
+  return {start:isoDate(s), end:isoDate(e), label, sub, days};
+}
+function shiftPeriod(n){
+  const a = parseISO(period.anchor);
+  if (period.unit === 'week') a.setDate(a.getDate() + 7 * n);
+  else if (period.unit === 'month') { a.setDate(1); a.setMonth(a.getMonth() + n); }
+  else { a.setMonth(0, 1); a.setFullYear(a.getFullYear() + n); }
+  period.anchor = isoDate(a);
+}
+async function earliestDate(){
+  const [m, d, ms, w] = await Promise.all([all('meals'), all('days'), all('measures'), all('workouts')]);
+  return [...m, ...d, ...ms, ...w].map(x => x.date).filter(Boolean).sort()[0] || isoDate();
+}
+async function renderPeriodBar(){
+  const r = rangeOf(period.unit, period.anchor); const first = await earliestDate();
+  const canPrev = r.start > first, canNext = r.end < isoDate();
+  $('#pbar').innerHTML = `<div class="useg">${[['week','Woche'],['month','Monat'],['year','Jahr']].map(([u, l]) => `<button data-u="${u}" class="${u === period.unit ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="weeknav"><button id="pPrev" ${canPrev ? '' : 'disabled'} aria-label="Früher">‹</button>
+    <div><b>${r.label}</b><span>${r.sub}</span></div>
+    <button id="pNext" ${canNext ? '' : 'disabled'} aria-label="Später">›</button></div>`;
+  $$('#pbar .useg button').forEach(b => b.onclick = () => { period.unit = b.dataset.u; LS.set('rUnit', period.unit); openDays.clear(); renderReports(); });
+  $('#pPrev').onclick = () => go(-1); $('#pNext').onclick = () => go(1);
+  return {r, canPrev, canNext};
+}
+let navState = {canPrev:false, canNext:false};
+function go(n){
+  if ((n < 0 && !navState.canPrev) || (n > 0 && !navState.canNext)) return;
+  shiftPeriod(n); openDays.clear();
+  const sc = $('#reportScroll'); sc.classList.remove('slide-l', 'slide-r'); void sc.offsetWidth; sc.classList.add(n < 0 ? 'slide-r' : 'slide-l');
+  renderReports();
+}
+// Wischen: nach links = älterer Zeitraum, nach rechts = neuerer
+(() => { const el = $('#reportScroll'); let x0 = null, y0 = 0, t0 = 0;
+  el.addEventListener('touchstart', e => { if (e.target.closest('.hist,.mtable-wrap,.chips2')) { x0 = null; return; } x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); }, {passive:true});
+  el.addEventListener('touchend', e => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+    if (Math.abs(dx) > 60 && Math.abs(dy) < 45 && Date.now() - t0 < 700) go(dx < 0 ? -1 : 1); }, {passive:true});
+})();
 $$('#seg button').forEach(b => b.onclick = () => { rSeg = b.dataset.r; renderReports(); $('#reportScroll').scrollTop = 0; });
-function renderReports(){
+async function renderReports(){
   $$('#seg button').forEach(b => b.classList.toggle('on', b.dataset.r === rSeg));
   $$('.rpane').forEach(p => p.hidden = p.id !== 'r-' + rSeg);
-  if (rSeg === 'measures') renderMeasures(); else if (rSeg === 'meals') renderMealsReport(); else renderTrainingReport();
+  navState = await renderPeriodBar();
+  const r = navState.r;
+  if (rSeg === 'measures') renderMeasures(r); else if (rSeg === 'meals') renderMealsReport(r); else renderTrainingReport(r);
 }
 function sparkline(vals, w = 120, h = 30){
   const v = vals.filter(x => x != null); if (v.length < 2) return '';
@@ -1282,153 +1426,191 @@ function sparkline(vals, w = 120, h = 30){
   return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts.map(p => p.map(n => n.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/><circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="3" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/></svg>`;
 }
 const signed = (d, dec = 1) => d == null ? '' : (d > 0 ? '+' : d < 0 ? '−' : '±') + fmtNum(Math.abs(d), dec);
+const dm = s => { const d = parseISO(s); return `${d.getDate()}.${d.getMonth()+1}.`; };
+
+/* Säulendiagramm (eine Reihe, Ziel-Linie, Werte per Antippen) */
+function barChart(id, buckets, goal, unitLabel){
+  const W = 340, H = 150, top = 22, base = 120, n = buckets.length;
+  const maxV = Math.max(goal ? goal * 1.25 : 1, ...buckets.map(b => b.v || 0));
+  const y = v => base - v / maxV * (base - top);
+  const slot = W / n, bw = Math.max(3, Math.min(30, slot * 0.62)), rad = Math.min(4, bw / 2);
+  let g = '';
+  buckets.forEach((b, i) => { const cx = slot * i + slot / 2, x = cx - bw / 2;
+    if (b.v > 0) { const yy = y(b.v); g += `<path class="pbar" data-i="${i}" d="M${x},${base} V${(yy + rad).toFixed(1)} Q${x},${yy.toFixed(1)} ${x + rad},${yy.toFixed(1)} H${x + bw - rad} Q${x + bw},${yy.toFixed(1)} ${x + bw},${(yy + rad).toFixed(1)} V${base} Z" fill="var(--mp)"/>`; }
+    g += `<rect class="hit" data-i="${i}" x="${slot * i}" y="${top - 10}" width="${slot}" height="${base - top + 26}" fill="transparent"/>`;
+    if (b.tick) g += `<text x="${cx}" y="${base + 16}" text-anchor="middle">${b.tick}</text>`; });
+  const svg = `<svg viewBox="0 0 ${W} ${H}" id="${id}" role="img" aria-label="${unitLabel}">
+    <line x1="0" x2="${W}" y1="${base}" y2="${base}" stroke="var(--line)"/>
+    ${goal ? `<line x1="0" x2="${W}" y1="${y(goal)}" y2="${y(goal)}" stroke="var(--muted)" stroke-dasharray="4 4" stroke-width="1"/><text x="${W}" y="${y(goal) - 4}" text-anchor="end">Ziel ${goal} g</text>` : ''}
+    ${g}<text class="tip" x="0" y="0" text-anchor="middle"></text></svg>`;
+  const wire = () => { const svgEl = $('#' + id); if (!svgEl) return; const tip = svgEl.querySelector('.tip');
+    $$('.hit', svgEl).forEach(r => r.onclick = () => { const i = +r.dataset.i, b = buckets[i], cx = slot * i + slot / 2;
+      tip.setAttribute('x', Math.min(W - 40, Math.max(40, cx))); tip.setAttribute('y', Math.max(14, (b.v ? y(b.v) : base) - 6));
+      tip.textContent = b.v ? `${b.name}: ${Math.round(b.v)} g` : `${b.name}: –`;
+      $$('.pbar', svgEl).forEach(p => p.setAttribute('opacity', p.dataset.i == i ? 1 : .45)); }); };
+  return {svg, wire};
+}
 
 /* --- Mahlzeiten-Bericht --- */
-async function renderMealsReport(){
+function dayCard(d, ms, open = true){
+  const t = sumMeals(ms);
+  let h = `<div class="daycard"><header data-toggle="${d}"><b>${fmtDate(d)}</b><span>E ${fmtG(t.p)} · K ${fmtG(t.c)} · F ${fmtG(t.f)} g${open ? '' : ' ›'}</span></header>`;
+  if (!open) return h + '</div>';
+  for (const m of ms.sort((a, b) => (a.time || '').localeCompare(b.time || ''))) {
+    h += `<div class="mealhead">${esc(m.time || '')}${m.label ? ' · ' + esc(m.label) : ''}</div>
+      <div class="fhead"><span style="text-align:left">Lebensmittel</span><span><i style="background:var(--mp)"></i>E</span><span><i style="background:var(--mc)"></i>K</span><span><i style="background:var(--mf)"></i>F</span></div>`;
+    for (const x of mealFoods(m)) {
+      const unsure = foodIssues(x).length > 0;
+      h += `<div class="frow"><span class="nm">${esc(scrubCalories(x.name))}${unsure ? '<span class="warn" title="Wert wirkt unsicher">⚠</span>' : ''}${x.amount ? `<small>${esc(x.amount)}</small>` : ''}</span>
+        <span class="n">${fmtG(x.p)}</span><span class="n">${fmtG(x.c)}</span><span class="n">${fmtG(x.f)}</span></div>`;
+    }
+  }
+  return h + `<div class="frow tot"><span>Tag gesamt</span><span class="n">${fmtG(t.p)}</span><span class="n">${fmtG(t.c)}</span><span class="n">${fmtG(t.f)}</span></div></div>`;
+}
+async function renderMealsReport(r){
   const el = $('#r-meals'); el.classList.add('mx');
-  const meals = await all('meals');
-  if (!meals.length && !(await all('products')).length) { el.innerHTML = '<div class="empty">Sobald du im Chat Mahlzeiten einträgst, erscheinen sie hier mit Eiweiß, Kohlenhydraten und Fett pro Lebensmittel.</div>'; return; }
-  const today = mondayOf(isoDate()); if (!rWeek) rWeek = today;
-  const days7 = [...Array(7)].map((_, i) => { const d = parseISO(rWeek); d.setDate(d.getDate() + i); return isoDate(d); });
+  const [meals, products] = await Promise.all([all('meals'), all('products')]);
   const byDate = {}; meals.forEach(m => (byDate[m.date] ||= []).push(m));
-  const tracked = days7.filter(d => byDate[d]?.length);
+  const today = isoDate();
+  const elapsed = r.days.filter(d => d <= today);
+  const tracked = elapsed.filter(d => byDate[d]?.length);
   const tot = d => sumMeals(byDate[d] || []);
   const avg = k => tracked.length ? tracked.reduce((a, d) => a + tot(d)[k], 0) / tracked.length : null;
-  const wk = isoWeek(parseISO(rWeek)); const end = parseISO(days7[6]); const start = parseISO(rWeek);
-  const firstWeek = meals.length ? mondayOf(meals.map(m => m.date).sort()[0]) : today;
-  let h = `<div class="weeknav"><button id="wPrev" ${rWeek <= firstWeek ? 'disabled' : ''} aria-label="Vorige Woche">‹</button>
-    <div><b>KW ${wk.week}</b><span>${start.getDate()}.${start.getMonth()+1}. – ${end.getDate()}.${end.getMonth()+1}.</span></div>
-    <button id="wNext" ${rWeek >= today ? 'disabled' : ''} aria-label="Nächste Woche">›</button></div>`;
-  h += `<div class="tiles">
-    <div class="tile"><div class="lbl">Ø Eiweiß pro Tag</div><div class="val">${avg('p') != null ? Math.round(avg('p')) : '–'}<small>g</small></div><div class="foot">Ziel ${PROTEIN_GOAL} g</div></div>
-    <div class="tile"><div class="lbl">Getrackte Tage</div><div class="val">${tracked.length}<small>/ 7</small></div><div class="foot">diese Woche</div></div>
-    <div class="tile"><div class="lbl">Ø Kohlenhydrate</div><div class="val">${avg('c') != null ? Math.round(avg('c')) : '–'}<small>g</small></div><div class="foot">pro getracktem Tag</div></div>
-    <div class="tile"><div class="lbl">Ø Fett</div><div class="val">${avg('f') != null ? Math.round(avg('f')) : '–'}<small>g</small></div><div class="foot">pro getracktem Tag</div></div></div>`;
-  // Protein-Säulen mit Ziel-Linie
-  const W = 340, H = 150, top = 22, base = 120, maxV = Math.max(PROTEIN_GOAL * 1.25, ...days7.map(d => tot(d).p));
-  const y = v => base - v / maxV * (base - top); const bw = 30, gap = (W - 7 * bw) / 8;
-  let bars = '';
-  days7.forEach((d, i) => { const v = tot(d).p, x = gap + i * (bw + gap), dt = parseISO(d);
-    if (v > 0) { const yy = y(v); bars += `<path class="pbar" data-i="${i}" data-v="${Math.round(v)}" d="M${x},${base} V${(yy + 4).toFixed(1)} Q${x},${yy.toFixed(1)} ${x + 4},${yy.toFixed(1)} H${x + bw - 4} Q${x + bw},${yy.toFixed(1)} ${x + bw},${(yy + 4).toFixed(1)} V${base} Z" fill="var(--mp)"/>`; }
-    bars += `<rect class="hit" data-i="${i}" data-v="${Math.round(v)}" x="${x - gap/2}" y="${top - 10}" width="${bw + gap}" height="${base - top + 10}" fill="transparent"/>`;
-    bars += `<text x="${x + bw/2}" y="${base + 16}" text-anchor="middle">${WD[dt.getDay()]}</text>`; });
-  h += `<div class="chartcard"><h4>Eiweiß pro Tag</h4><div class="sub">Tippe auf einen Tag für den Wert</div>
-    <svg viewBox="0 0 ${W} ${H}" id="pchart" role="img" aria-label="Eiweiß pro Tag in Gramm">
-      <line x1="0" x2="${W}" y1="${base}" y2="${base}" stroke="var(--line)"/>
-      <line x1="0" x2="${W}" y1="${y(PROTEIN_GOAL)}" y2="${y(PROTEIN_GOAL)}" stroke="var(--muted)" stroke-dasharray="4 4" stroke-width="1"/>
-      <text x="${W}" y="${y(PROTEIN_GOAL) - 4}" text-anchor="end">Ziel ${PROTEIN_GOAL} g</text>
-      ${bars}<text class="tip" id="ptip" x="0" y="0" text-anchor="middle"></text></svg></div>`;
-  // Tagesberichte
-  h += `<div class="legend"><span><i style="background:var(--mp)"></i>E = Eiweiß</span><span><i style="background:var(--mc)"></i>K = Kohlenhydrate</span><span><i style="background:var(--mf)"></i>F = Fett</span></div>`;
-  const shown = days7.filter(d => byDate[d]?.length).reverse();
-  if (!shown.length) h += '<div class="empty">In dieser Woche ist noch nichts eingetragen.</div>';
-  for (const d of shown) {
-    const ms = byDate[d].sort((a, b) => (a.time || '').localeCompare(b.time || '')); const t = tot(d);
-    h += `<div class="daycard"><header><b>${fmtDate(d)}</b><span>E ${fmtG(t.p)} · K ${fmtG(t.c)} · F ${fmtG(t.f)} g</span></header>`;
-    for (const m of ms) {
-      h += `<div class="mealhead">${esc(m.time || '')}${m.label ? ' · ' + esc(m.label) : ''}</div>
-        <div class="fhead"><span style="text-align:left">Lebensmittel</span><span><i style="background:var(--mp)"></i>E</span><span><i style="background:var(--mc)"></i>K</span><span><i style="background:var(--mf)"></i>F</span></div>`;
-      for (const x of mealFoods(m)) {
-        const unsure = foodIssues(x).length > 0;
-        h += `<div class="frow"><span class="nm">${esc(scrubCalories(x.name))}${unsure ? '<span class="warn" title="Wert wirkt unsicher">⚠</span>' : ''}${x.amount ? `<small>${esc(x.amount)}</small>` : ''}</span>
-          <span class="n">${fmtG(x.p)}</span><span class="n">${fmtG(x.c)}</span><span class="n">${fmtG(x.f)}</span></div>`;
-      }
-    }
-    h += `<div class="frow tot"><span>Tag gesamt</span><span class="n">${fmtG(t.p)}</span><span class="n">${fmtG(t.c)}</span><span class="n">${fmtG(t.f)}</span></div></div>`;
+  const tileVal = k => avg(k) != null ? Math.round(avg(k)) : '–';
+  let h = `<div class="tiles">
+    <div class="tile"><div class="lbl">Ø Eiweiß pro Tag</div><div class="val">${tileVal('p')}<small>g</small></div><div class="foot">Ziel ${PROTEIN_GOAL} g · ${tracked.filter(d => tot(d).p >= PROTEIN_GOAL * 0.9).length} Tage erreicht</div></div>
+    <div class="tile"><div class="lbl">Getrackte Tage</div><div class="val">${tracked.length}<small>/ ${elapsed.length || r.days.length}</small></div><div class="foot">${period.unit === 'week' ? 'diese Woche' : period.unit === 'month' ? 'in diesem Monat' : 'in diesem Jahr'}</div></div>
+    <div class="tile"><div class="lbl">Ø Kohlenhydrate</div><div class="val">${tileVal('c')}<small>g</small></div><div class="foot">pro getracktem Tag</div></div>
+    <div class="tile"><div class="lbl">Ø Fett</div><div class="val">${tileVal('f')}<small>g</small></div><div class="foot">pro getracktem Tag</div></div></div>`;
+  // Diagramm: Woche/Monat = Tage, Jahr = Monate (Ø pro getracktem Tag)
+  let buckets;
+  if (period.unit === 'year') {
+    buckets = [...Array(12)].map((_, mi) => { const ds = r.days.filter(d => parseISO(d).getMonth() === mi && byDate[d]?.length);
+      return {name:MON3[mi], tick:MON3[mi], v: ds.length ? ds.reduce((a, d) => a + tot(d).p, 0) / ds.length : 0}; });
+  } else {
+    buckets = r.days.map(d => { const dt = parseISO(d);
+      return {name: period.unit === 'week' ? fmtDate(d) : dm(d), tick: period.unit === 'week' ? WD[dt.getDay()] : ([1, 5, 10, 15, 20, 25, 30].includes(dt.getDate()) ? String(dt.getDate()) : ''), v: tot(d).p}; });
   }
-  const products = (await all('products')).sort((a, b) => (a.brand + a.name).localeCompare(b.brand + b.name));
+  const chart = barChart('pchart', buckets, PROTEIN_GOAL, 'Eiweiß in Gramm');
+  h += `<div class="chartcard"><h4>${period.unit === 'year' ? 'Eiweiß · Ø pro Tag je Monat' : 'Eiweiß pro Tag'}</h4><div class="sub">Tippe auf eine Säule für den Wert</div>${chart.svg}</div>`;
+  h += `<div class="legend"><span><i style="background:var(--mp)"></i>E = Eiweiß</span><span><i style="background:var(--mc)"></i>K = Kohlenhydrate</span><span><i style="background:var(--mf)"></i>F = Fett</span></div>`;
+  // Liste: Woche = alle Tage offen, Monat = Tage zum Aufklappen, Jahr = Monate
+  if (period.unit === 'year') {
+    const rows = [...Array(12)].map((_, mi) => { const ds = r.days.filter(d => parseISO(d).getMonth() === mi && byDate[d]?.length); return {mi, ds}; }).filter(x => x.ds.length).reverse();
+    if (!rows.length) h += '<div class="empty">In diesem Jahr ist noch nichts eingetragen.</div>';
+    else { h += `<div class="daycard"><header><b>Monate</b><span>Ø pro getracktem Tag</span></header>
+      <div class="fhead"><span style="text-align:left">Monat</span><span><i style="background:var(--mp)"></i>E</span><span><i style="background:var(--mc)"></i>K</span><span><i style="background:var(--mf)"></i>F</span></div>`;
+      for (const {mi, ds} of rows) { const a = k => ds.reduce((s, d) => s + tot(d)[k], 0) / ds.length;
+        h += `<div class="frow tap" data-month="${mi}"><span class="nm">${MONTHS[mi]} ›<small>${ds.length} Tage getrackt</small></span><span class="n">${fmtG(a('p'))}</span><span class="n">${fmtG(a('c'))}</span><span class="n">${fmtG(a('f'))}</span></div>`; }
+      h += '</div>'; }
+  } else {
+    const shown = r.days.filter(d => byDate[d]?.length).reverse();
+    if (!shown.length) h += `<div class="empty">In ${period.unit === 'week' ? 'dieser Woche' : 'diesem Monat'} ist noch nichts eingetragen.</div>`;
+    if (period.unit === 'month' && shown.length) h += '<p class="hint" style="margin-top:0">Tippe auf einen Tag, um die Lebensmittel zu sehen.</p>';
+    for (const d of shown) h += dayCard(d, byDate[d], period.unit === 'week' || openDays.has(d));
+  }
+  // Gespeicherte Produkte
+  products.sort((a, b) => (a.brand + a.name).localeCompare(b.brand + b.name));
   h += `<div class="daycard"><header><b>Gespeicherte Produkte</b><span>${products.length}</span></header>`;
   if (!products.length) h += `<div class="mealhead" style="text-transform:none;letter-spacing:0;font-weight:400;padding-bottom:12px">Schick im Chat ein Foto der Nährwerttabelle oder nenne die Werte. Satt merkt sie sich dann dauerhaft.</div>`;
   else { h += `<div class="fhead"><span style="text-align:left">Produkt</span><span><i style="background:var(--mp)"></i>E</span><span><i style="background:var(--mc)"></i>K</span><span><i style="background:var(--mf)"></i>F</span></div>`;
     for (const p of products) h += `<div class="frow"><span class="nm">${esc(p.brand ? p.brand + ' ' : '')}${esc(p.name)}<small>pro ${esc(p.basis)}${p.portion ? ' · ' + esc(p.portion) : ''} · <a href="#" data-delprod="${esc(p.key)}">löschen</a></small></span>
       <span class="n">${fmtG(p.p)}</span><span class="n">${fmtG(p.c)}</span><span class="n">${fmtG(p.f)}</span></div>`; }
   h += '</div>';
-  el.innerHTML = h;
-  $$('[data-delprod]', el).forEach(a => a.onclick = async e => { e.preventDefault(); if (!confirm('Dieses Produkt vergessen?')) return; await del('products', a.dataset.delprod); scheduleBackup(); renderMealsReport(); });
-  $('#wPrev').onclick = () => { const d = parseISO(rWeek); d.setDate(d.getDate() - 7); rWeek = isoDate(d); renderMealsReport(); };
-  $('#wNext').onclick = () => { const d = parseISO(rWeek); d.setDate(d.getDate() + 7); rWeek = isoDate(d); renderMealsReport(); };
-  const tip = $('#ptip');
-  $$('#pchart .hit').forEach(r => r.onclick = () => { const i = +r.dataset.i, x = gap + i * (bw + gap) + bw/2, v = +r.dataset.v;
-    tip.setAttribute('x', Math.min(W - 24, Math.max(24, x))); tip.setAttribute('y', Math.max(14, (v ? y(v) : base) - 6)); tip.textContent = v ? `${v} g` : '–';
-    $$('#pchart .pbar').forEach(b => b.setAttribute('opacity', b.dataset.i == i ? 1 : .45)); });
+  el.innerHTML = h; chart.wire();
+  $$('[data-delprod]', el).forEach(a => a.onclick = async e => { e.preventDefault(); if (!confirm('Dieses Produkt vergessen?')) return; await del('products', a.dataset.delprod); scheduleBackup(); renderMealsReport(r); });
+  if (period.unit === 'month') $$('[data-toggle]', el).forEach(hd => hd.onclick = () => { const d = hd.dataset.toggle; openDays.has(d) ? openDays.delete(d) : openDays.add(d); renderMealsReport(r); });
+  $$('[data-month]', el).forEach(row => row.onclick = () => { const a = parseISO(r.start); a.setMonth(+row.dataset.month, 1); period.unit = 'month'; period.anchor = isoDate(a); LS.set('rUnit', 'month'); renderReports(); });
 }
 
 /* --- Training-Bericht --- */
-async function renderTrainingReport(){
+async function renderTrainingReport(r){
   const el = $('#r-training');
   const [plan, workouts, training] = await Promise.all([all('plan'), all('workouts'), all('training')]);
   plan.sort((a, b) => a.day - b.day); workouts.sort((a, b) => a.date.localeCompare(b.date));
   if (!plan.length && !workouts.length) { el.innerHTML = '<div class="empty">Noch kein Trainingsplan. Spiele unter Einstellungen → Wiederherstellen die Datei <b>satt-trainingsplan.satt</b> ein, oder schicke deine erste Trainingsnotiz im Chat.</div>'; return; }
-  const mon = mondayOf(isoDate()); const thisWeek = workouts.filter(w => w.date >= mon);
-  const last = workouts[workouts.length - 1];
-  if (rDay == null) rDay = last?.day ?? plan[0]?.day ?? 1;
+  const inP = workouts.filter(w => w.date >= r.start && w.date <= r.end);
+  const fromD = [r.start, workouts[0]?.date || r.start].sort()[1]; // erst ab den ersten Daten zählen
+  const weeks = Math.max(1, Math.round(r.days.filter(d => d >= fromD && d <= isoDate()).length / 7));
+  const last = inP[inP.length - 1];
+  if (rDay == null) rDay = (workouts[workouts.length - 1]?.day) ?? plan[0]?.day ?? 1;
   let h = `<div class="tiles">
-    <div class="tile"><div class="lbl">Diese Woche</div><div class="val">${thisWeek.length}<small>/ 3 Trainings</small></div><div class="foot">${thisWeek.map(w => 'Tag ' + (w.day ?? '?')).join(' · ') || 'noch keins'}</div></div>
-    <div class="tile"><div class="lbl">Letztes Training</div><div class="val" style="font-size:18px">${last ? fmtDate(last.date) : '–'}</div><div class="foot">${last ? 'Tag ' + (last.day ?? '?') + ' · KW ' + isoWeek(parseISO(last.date)).week : ''}</div></div></div>`;
+    <div class="tile"><div class="lbl">Trainings</div><div class="val">${inP.length}<small>${period.unit === 'week' ? '/ 3' : ''}</small></div><div class="foot">${period.unit === 'week' ? (inP.map(w => 'Tag ' + (w.day ?? '?')).join(' · ') || 'noch keins') : `Ø ${fmtNum(inP.length / weeks, 1)} pro Woche`}</div></div>
+    <div class="tile"><div class="lbl">Letztes im Zeitraum</div><div class="val" style="font-size:18px">${last ? fmtDate(last.date) : '–'}</div><div class="foot">${last ? 'Tag ' + (last.day ?? '?') + ' · KW ' + isoWeek(parseISO(last.date)).week : 'kein Training'}</div></div></div>`;
   h += `<div class="chips2">${plan.map(p => `<button data-day="${p.day}" class="${p.day === rDay ? 'on' : ''}"><b>Tag ${p.day}</b>${esc(p.title)}</button>`).join('')}</div>`;
   const p = plan.find(p => p.day === rDay);
-  const sessions = workouts.filter(w => w.day === rDay && w.sets.length);
-  if (p) h += `<div class="plancard"><b>Tag ${p.day} · ${esc(p.title)}</b><div>${esc(p.weekday)} · ${p.exercises.length} Übungen · ${sessions.length} Trainings erfasst</div></div>`;
+  const all_ = workouts.filter(w => w.day === rDay && w.sets.length);
+  const sessions = all_.filter(w => w.date >= r.start && w.date <= r.end);
+  const ref = all_.filter(w => w.date < r.start).pop(); // letztes Training davor als Vergleich
+  if (p) h += `<div class="plancard"><b>Tag ${p.day} · ${esc(p.title)}</b><div>${esc(p.weekday)} · ${p.exercises.length} Übungen · ${sessions.length} Training${sessions.length === 1 ? '' : 's'} im Zeitraum</div></div>`;
+  if (!sessions.length) h += `<div class="empty" style="padding:16px 20px 24px">In diesem Zeitraum kein Training für Tag ${rDay}.${ref ? ' Unten siehst du das letzte davor.' : ''}</div>`;
+  const cols = [...(ref ? [{w:ref, ref:true}] : []), ...sessions.map(w => ({w}))];
   const exNames = [...(p?.exercises || [])];
-  sessions.forEach(w => w.sets.forEach(x => { if (!exNames.some(e => sameExercise(e.name, x.exercise))) exNames.push({name:x.exercise, extra:true}); }));
+  cols.forEach(({w}) => w.sets.forEach(x => { if (!exNames.some(e => sameExercise(e.name, x.exercise))) exNames.push({name:x.exercise, extra:true}); }));
   for (const e of exNames) {
-    const hist = sessions.map(w => ({w, sets:w.sets.filter(x => sameExercise(x.exercise, e.name)).sort((a, b) => a.set - b.set)})).filter(s => s.sets.length).slice(-6);
+    const hist = cols.map(c => ({...c, sets:c.w.sets.filter(x => sameExercise(x.exercise, e.name)).sort((a, b) => a.set - b.set)})).filter(s => s.sets.length);
     const nSets = Math.max(e.sets || 0, ...hist.map(s => s.sets.length));
-    const tops = hist.map(s => { const v = s.sets.map(x => weightNum(x.weight)).filter(v => v != null); return v.length ? Math.max(...v) : null; });
-    const numeric = tops.filter(v => v != null);
+    const top = s => { const v = s.sets.map(x => weightNum(x.weight)).filter(v => v != null); return v.length ? Math.max(...v) : null; };
+    const tops = hist.map(top).filter(v => v != null);
     let prog = '';
-    if (numeric.length >= 2) prog = `<div class="prog">${sparkline(tops, 90, 26)}<span>Top-Gewicht <b>${fmtNum(numeric[0])} → ${fmtNum(numeric[numeric.length - 1])} kg</b></span></div>`;
+    if (tops.length >= 2) prog = `<div class="prog">${sparkline(hist.map(top), 90, 26)}<span>Top-Gewicht <b>${fmtNum(tops[0])} → ${fmtNum(tops[tops.length - 1])} kg</b>${ref && hist[0]?.ref ? ' <small style="color:var(--muted)">(ab letztem Mal davor)</small>' : ''}</span></div>`;
     h += `<div class="excard"><h4>${esc(e.name)}</h4>
       ${e.extra ? '<div class="meta">Zusatzübung</div>' : `<div class="meta">${e.sets} Sätze · ${esc(e.target)} · Pause ${esc(e.rest)}</div>`}
       ${e.cue ? `<div class="cue">${esc(e.cue)}</div>` : ''}${prog}`;
     if (hist.length) {
+      const lastIdx = hist.length - 1;
       h += `<div class="hist"><table><thead><tr><th></th>${hist.map((s, i) => { const d = parseISO(s.w.date);
-        return `<th class="${i === hist.length - 1 ? 'last' : ''}">${d.getDate()}.${d.getMonth()+1}.<br>KW ${isoWeek(d).week}</th>`; }).join('')}</tr></thead><tbody>`;
+        return `<th class="${s.ref ? 'ref' : i === lastIdx ? 'last' : ''}">${d.getDate()}.${d.getMonth()+1}.<br>${s.ref ? 'davor' : 'KW ' + isoWeek(d).week}</th>`; }).join('')}</tr></thead><tbody>`;
       for (let i = 1; i <= nSets; i++) h += `<tr><td>S${i}</td>${hist.map((s, j) => { const x = s.sets.find(x => x.set === i);
-        return `<td class="${j === hist.length - 1 ? 'last' : ''}">${x ? esc(fmtSet(x)) + (x.note ? `<small>${esc(x.note)}</small>` : '') : '–'}</td>`; }).join('')}</tr>`;
+        return `<td class="${s.ref ? 'ref' : j === lastIdx ? 'last' : ''}">${x ? esc(fmtSet(x)) + (x.note ? `<small>${esc(x.note)}</small>` : '') : '–'}</td>`; }).join('')}</tr>`;
       h += '</tbody></table></div>';
-    } else h += '<div class="meta" style="padding-top:8px">Noch keine Werte erfasst.</div>';
+    } else h += '<div class="meta" style="padding-top:8px">Keine Werte im Zeitraum.</div>';
     h += '</div>';
   }
-  const loose = [...workouts.filter(w => !w.sets.length && w.note), ...training.map(t => ({date:t.date, note:t.text}))].sort((a, b) => b.date.localeCompare(a.date));
+  const loose = [...inP.filter(w => !w.sets.length && w.note), ...training.filter(t => t.date >= r.start && t.date <= r.end).map(t => ({date:t.date, note:t.text}))].sort((a, b) => b.date.localeCompare(a.date));
   if (loose.length) h += `<div class="card"><h3>Weitere Trainingsnotizen</h3><ul class="meals">${loose.map(t => `<li><span>${fmtDate(t.date)}</span>${esc(t.note)}</li>`).join('')}</ul></div>`;
-  h += `<p class="hint">Neues Training: schreib im Chat „Tag 1“ plus deine Werte, oder hänge deine Notiz als Textdatei an (Kamera-Knopf → Datei wählen).</p>`;
+  h += `<p class="hint">Neues Training: schreib im Chat „Tag 1“ plus deine Werte, sprich sie ein, oder hänge deine Notiz als Textdatei an.</p>`;
   el.innerHTML = h;
-  $$('.chips2 button', el).forEach(b => b.onclick = () => { rDay = +b.dataset.day; renderTrainingReport(); });
+  $$('.chips2 button', el).forEach(b => b.onclick = () => { rDay = +b.dataset.day; renderTrainingReport(r); });
   $$('.hist', el).forEach(x => requestAnimationFrame(() => x.scrollLeft = x.scrollWidth));
 }
 
 /* ---------------- Maße ---------------- */
-async function renderMeasures(){
-  const allM = (await all('measures')).sort((a,b)=>a.date.localeCompare(b.date));
+async function renderMeasures(r){
+  r = r || rangeOf(period.unit, period.anchor);
+  const allM = (await all('measures')).sort((a, b) => a.date.localeCompare(b.date));
   const days = (await all('days')).filter(d => num(d.weight) != null).sort((a, b) => a.date.localeCompare(b.date));
+  const inP = allM.filter(m => m.date >= r.start && m.date <= r.end);
+  const ref = allM.filter(m => m.date < r.start).pop(); // letzte Messung davor als Vergleich
   let tiles = '';
-  // Gewicht: 7-Tage-Schnitt der Tageswerte (ruhiger als Einzelwerte), sonst letzte Messung
-  const recent = days.filter(d => d.date >= isoDate(new Date(Date.now() - 7*864e5)));
-  if (recent.length) { const a = recent.reduce((s, d) => s + d.weight, 0) / recent.length;
-    tiles += `<div class="tile"><div class="lbl">Gewicht · Ø 7 Tage</div><div class="val">${fmtNum(a, 1)}<small>kg</small></div><div class="foot">${recent.length} Messung${recent.length > 1 ? 'en' : ''}</div>${sparkline(days.slice(-21).map(d => d.weight))}</div>`; }
+  const wIn = days.filter(d => d.date >= r.start && d.date <= r.end);
+  if (wIn.length) { const a = wIn.reduce((s, d) => s + d.weight, 0) / wIn.length;
+    tiles += `<div class="tile"><div class="lbl">Gewicht · Ø Zeitraum</div><div class="val">${fmtNum(a, 1)}<small>kg</small></div><div class="foot">aus ${wIn.length} Tageswert${wIn.length > 1 ? 'en' : ''}</div>${sparkline(wIn.map(d => d.weight))}</div>`; }
   for (const [k, l, u] of MEASURE_FIELDS.filter(([k]) => ['gewicht','taille','po','oberschenkel'].includes(k))) {
-    if (k === 'gewicht' && recent.length) continue;
-    const vals = allM.filter(m => m[k] != null); if (!vals.length) continue;
-    const first = vals[0], lastV = vals[vals.length - 1]; const d0 = parseISO(first.date);
-    tiles += `<div class="tile"><div class="lbl">${l}</div><div class="val">${fmtNum(lastV[k], 2)}<small>${u}</small></div>
-      <div class="foot">${vals.length > 1 ? `${signed(+(lastV[k] - first[k]).toFixed(2))} ${u} seit ${d0.getDate()}.${d0.getMonth()+1}.` : 'erste Messung'}</div>${sparkline(vals.map(m => m[k]))}</div>`;
+    if (k === 'gewicht' && wIn.length) continue;
+    const vals = inP.filter(m => m[k] != null); const base = [...allM.filter(m => m.date < r.start && m[k] != null)].pop();
+    if (!vals.length && !base) continue;
+    const lastV = vals[vals.length - 1] || base; const from = base || vals[0];
+    const d0 = parseISO(from.date);
+    const foot = !vals.length ? `zuletzt am ${dm(base.date)}` : (from === lastV ? 'erste Messung' : `${signed(+(lastV[k] - from[k]).toFixed(2))} ${u} ggü. ${d0.getDate()}.${d0.getMonth()+1}.`);
+    tiles += `<div class="tile"><div class="lbl">${l}</div><div class="val">${fmtNum(lastV[k], 2)}<small>${u}</small></div><div class="foot">${foot}</div>${sparkline([...(base ? [base] : []), ...vals].map(m => m[k]))}</div>`;
   }
-  $('#mTiles').innerHTML = tiles;
-  const ms = allM;
+  $('#mTiles').innerHTML = tiles || '';
+  const ms = [...(ref ? [ref] : []), ...inP];
   const t = $('#mtable');
-  if (!ms.length) { t.innerHTML = '<tr><td class="empty" style="text-align:center">Noch keine Messungen.</td></tr>'; return; }
-  const head = `<thead><tr><th></th>${ms.map(m => { const d = parseISO(m.date);
-    return `<th><button data-edit="${m.date}">${WD[d.getDay()]}, ${d.getDate()}.${d.getMonth()+1}.${String(d.getFullYear()).slice(2)}</button></th>`; }).join('')}</tr></thead>`;
+  if (!ms.length) { t.innerHTML = '<tr><td class="empty" style="text-align:center;white-space:normal">Bis zu diesem Zeitraum gibt es noch keine Messungen.</td></tr>'; return; }
+  const head = `<thead><tr><th></th>${ms.map(m => { const d = parseISO(m.date); const isRef = m === ref;
+    return `<th class="${isRef ? 'ref' : ''}"><button data-edit="${m.date}">${WD[d.getDay()]}, ${d.getDate()}.${d.getMonth()+1}.${String(d.getFullYear()).slice(2)}</button>${isRef ? '<br><small>davor</small>' : ''}</th>`; }).join('')}</tr></thead>`;
   const rows = MEASURE_FIELDS.map(([k, label, unit]) => `<tr><td>${label}</td>${ms.map((m, i) => {
     const v = m[k]; const prev = i > 0 ? ms[i-1][k] : null;
     const diff = (v != null && prev != null) ? +(v - prev).toFixed(2) : null;
     const ds = diff == null ? '' : `<span class="delta">${diff > 0 ? '+' : diff < 0 ? '−' : '±'}${fmtNum(Math.abs(diff), 2)}</span>`;
-    return `<td>${v != null ? fmtNum(v, 2) + ' ' + unit : '–'}${ds}</td>`; }).join('')}</tr>`).join('');
-  t.innerHTML = head + `<tbody>${rows}</tbody>`;
+    return `<td class="${m === ref ? 'ref' : ''}">${v != null ? fmtNum(v, 2) + ' ' + unit : '–'}${ds}</td>`; }).join('')}</tr>`).join('');
+  t.innerHTML = head + `<tbody>${rows}</tbody>` + (inP.length ? '' : `<tbody><tr><td colspan="${ms.length + 1}" class="hint" style="text-align:left;white-space:normal">Im gewählten Zeitraum keine neue Messung.</td></tr></tbody>`);
   $$('[data-edit]', t).forEach(b => b.onclick = () => openMeasure(b.dataset.edit));
   const wrap = $('#r-measures .mtable-wrap'); requestAnimationFrame(() => wrap.scrollLeft = wrap.scrollWidth);
 }
+
 $('#mFields').innerHTML = MEASURE_FIELDS.map(([k, l, u]) =>
   `<label class="f">${l} (${u})<input type="number" step="0.05" inputmode="decimal" data-k="${k}"></label>`).join('');
 let editingMeasure = null;
@@ -1482,6 +1664,8 @@ function loadSettingsUI(){
   $('#gRepo').value = LS.get('gRepo',''); $('#gToken').value = cloud.token; $('#gPass').value = cloud.pass; renderBackupStatus();
   $('#sLocalRemind').value = String(LS.get('localRemind', 3)); renderLocalStatus(); renderCheckStatus();
 }
+$('#impBtn').onclick = () => $('#impFile').click();
+$('#impFile').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; saveSettings(); closeSheets(); importChat((await f.text()).trim(), f.name); };
 $('#checkNow').onclick = async () => { saveSettings(); renderCheckStatus('Prüfe …'); await plausibility(null, {full:true}); };
 $('#sModel').onchange = () => { $('#customWrap').hidden = $('#sModel').value !== 'custom'; };
 function saveSettings(){
