@@ -1,0 +1,929 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Satt">
+<meta name="theme-color" content="#f6f3ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151716" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Satt – dein ruhiger Ernährungscoach</title>
+<style>
+:root{
+  --bg:#f6f3ee; --surface:#fffdf9; --surface2:#efeae2; --text:#2a2723; --muted:#8a8278;
+  --line:#e3ddd3; --accent:#5f7d68; --accent-ink:#ffffff; --accent-soft:#e3ebe4;
+  --user:#5f7d68; --user-ink:#ffffff; --danger:#b5574b; --warn-soft:#f5e9dc;
+  --radius:18px; --shadow:0 1px 2px rgba(40,30,20,.06),0 4px 16px rgba(40,30,20,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#151716; --surface:#1e2120; --surface2:#272b29; --text:#ece8e1; --muted:#9a958d;
+    --line:#2f3431; --accent:#8fb39a; --accent-ink:#0f1411; --accent-soft:#25332a;
+    --user:#3f5c48; --user-ink:#eef3ef; --danger:#e08a7e; --warn-soft:#3a3027;
+    --shadow:none;
+  }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+  -webkit-text-size-adjust:100%;overscroll-behavior:none}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+#app{position:fixed;inset:0;display:flex;flex-direction:column;height:var(--app-h,100dvh)}
+
+header{padding:calc(env(safe-area-inset-top) + 10px) 18px 10px;display:flex;align-items:center;gap:10px;
+  background:var(--bg);border-bottom:1px solid var(--line)}
+header h1{font-size:19px;margin:0;font-weight:650;letter-spacing:-.01em;flex:1}
+.pill{font-size:12.5px;padding:4px 10px;border-radius:99px;background:var(--surface2);color:var(--muted);white-space:nowrap}
+.pill.ok{background:var(--accent-soft);color:var(--accent)}
+
+main{flex:1;min-height:0;position:relative}
+.view{position:absolute;inset:0;display:none;flex-direction:column}
+.view.active{display:flex}
+.scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 14px 18px}
+
+/* Chat */
+#msgs{display:flex;flex-direction:column;gap:10px}
+.msg{max-width:86%;padding:10px 14px;border-radius:var(--radius);word-wrap:break-word;overflow-wrap:anywhere}
+.msg.user{align-self:flex-end;background:var(--user);color:var(--user-ink);border-bottom-right-radius:6px}
+.msg.model{align-self:flex-start;background:var(--surface);box-shadow:var(--shadow);border:1px solid var(--line);border-bottom-left-radius:6px}
+.msg.err{align-self:center;background:var(--warn-soft);color:var(--text);font-size:14px;max-width:95%;text-align:center}
+.msg img{display:block;max-width:100%;border-radius:12px;margin-bottom:6px}
+.msg p{margin:0 0 .5em}.msg p:last-child{margin-bottom:0}
+.msg ul,.msg ol{margin:.2em 0 .5em;padding-left:1.3em}
+.msg h3,.msg h4{margin:.6em 0 .3em;font-size:16px}
+.msg pre{background:var(--surface2);padding:10px;border-radius:10px;overflow-x:auto;font-size:13px;margin:.4em 0;white-space:pre-wrap}
+.msg code{font-family:ui-monospace,Menlo,monospace;font-size:.9em}
+.msg .tbl{overflow-x:auto;margin:.4em 0}
+.msg table{border-collapse:collapse;font-size:13.5px}
+.msg th,.msg td{border:1px solid var(--line);padding:4px 7px;text-align:left;white-space:nowrap}
+.msg th{background:var(--surface2)}
+.time{font-size:11px;color:var(--muted);margin-top:4px}
+.msg.user .time{color:rgba(255,255,255,.7)}
+.daysep{align-self:center;font-size:12px;color:var(--muted);padding:6px 0 2px}
+.typing{display:inline-flex;gap:4px;padding:4px 2px}
+.typing i{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:b 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes b{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+.retry{margin-top:8px;border:0;background:var(--accent);color:var(--accent-ink);padding:6px 14px;border-radius:99px;font-size:14px}
+
+.chips{display:flex;gap:8px;padding:8px 12px 0;overflow-x:auto;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:var(--surface);padding:6px 12px;border-radius:99px;font-size:14px;color:var(--text)}
+.composer{display:flex;align-items:flex-end;gap:8px;padding:8px 10px 10px;background:var(--bg)}
+.composer textarea{flex:1;resize:none;border:1px solid var(--line);background:var(--surface);border-radius:22px;
+  padding:10px 14px;max-height:140px;min-height:44px;line-height:1.35;outline:none}
+.composer textarea:focus{border-color:var(--accent)}
+.iconbtn{flex:none;width:44px;height:44px;border-radius:50%;border:0;display:grid;place-items:center;background:var(--surface2);color:var(--text)}
+.iconbtn.send{background:var(--accent);color:var(--accent-ink)}
+.iconbtn:disabled{opacity:.4}
+.iconbtn svg{width:22px;height:22px}
+#preview{display:none;padding:8px 12px 0}
+#preview.show{display:flex;align-items:center;gap:10px}
+#preview img{width:56px;height:56px;object-fit:cover;border-radius:10px}
+#preview button{border:0;background:none;color:var(--muted);font-size:14px}
+
+.banner{margin:10px 12px 0;padding:12px 14px;border-radius:14px;background:var(--warn-soft);font-size:14.5px}
+.banner b{display:block;margin-bottom:2px}
+
+/* Tage */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:12px;box-shadow:var(--shadow)}
+.card h3{margin:0;font-size:16px;font-weight:650;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card .sub{color:var(--muted);font-size:13.5px;margin-top:2px}
+.status{font-size:12.5px;font-weight:500;padding:3px 9px;border-radius:99px;background:var(--surface2);color:var(--muted)}
+.status.good{background:var(--accent-soft);color:var(--accent)}
+.bar{height:8px;border-radius:99px;background:var(--surface2);overflow:hidden;margin:10px 0 4px}
+.bar>span{display:block;height:100%;background:var(--accent);border-radius:99px}
+.kv{display:flex;justify-content:space-between;font-size:13.5px;color:var(--muted)}
+.meals{margin:10px 0 0;padding:0;list-style:none;font-size:14.5px}
+.meals li{padding:6px 0;border-top:1px dashed var(--line)}
+.meals li span{color:var(--muted);font-size:13px;margin-right:6px}
+.empty{color:var(--muted);text-align:center;padding:40px 20px;font-size:15px}
+.weekhead{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:16px 4px 8px}
+.weekhead:first-child{margin-top:0}
+
+/* Maße */
+.mtable-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.mtable{border-collapse:separate;border-spacing:0;font-size:15px;min-width:100%}
+.mtable th,.mtable td{padding:10px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+.mtable tr:last-child td{border-bottom:0}
+.mtable th:first-child,.mtable td:first-child{text-align:left;position:sticky;left:0;background:var(--surface);font-weight:550;z-index:1}
+.mtable thead th{font-size:13px;color:var(--muted);font-weight:550}
+.mtable thead th button{border:0;background:none;color:inherit;padding:0;font-weight:inherit;text-decoration:underline dotted;text-underline-offset:3px}
+.delta{display:block;font-size:11.5px;color:var(--muted)}
+.btn{border:0;background:var(--accent);color:var(--accent-ink);padding:12px 18px;border-radius:14px;font-weight:600;width:100%;font-size:16px}
+.btn.ghost{background:var(--surface2);color:var(--text)}
+.btn.danger{background:transparent;color:var(--danger);border:1px solid var(--line)}
+.hint{color:var(--muted);font-size:13.5px;margin:10px 4px}
+
+/* Tabbar */
+nav{display:flex;border-top:1px solid var(--line);background:var(--bg);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;background:none;padding:8px 0 6px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--muted)}
+nav button svg{width:24px;height:24px}
+nav button.active{color:var(--accent)}
+body.kb nav{display:none}
+
+/* Sheets */
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:20}
+.sheet-bg.open{display:block}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-height:92%;background:var(--bg);border-radius:20px 20px 0 0;z-index:21;
+  transform:translateY(105%);transition:transform .25s ease;display:flex;flex-direction:column}
+.sheet.open{transform:none}
+.sheet-head{display:flex;align-items:center;padding:14px 16px 8px}
+.sheet-head h2{flex:1;margin:0;font-size:18px}
+.sheet-head button{border:0;background:none;color:var(--accent);font-weight:600;font-size:16px}
+.sheet-body{overflow-y:auto;padding:4px 16px calc(20px + env(safe-area-inset-bottom))}
+label.f{display:block;margin:12px 0 0;font-size:13.5px;color:var(--muted)}
+.f input,.f select,.f textarea{display:block;width:100%;margin-top:5px;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);outline:none}
+.f textarea{min-height:260px;font-size:14px;line-height:1.4}
+.f input:focus,.f textarea:focus,.f select:focus{border-color:var(--accent)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.section{margin-top:22px;padding-top:4px}
+.section h4{margin:0 0 4px;font-size:15px}
+.row{display:flex;gap:10px;margin-top:10px}
+.row>*{flex:1}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1 id="title">Chat</h1>
+    <span class="pill" id="proteinPill" hidden></span>
+  </header>
+
+  <main>
+    <!-- CHAT -->
+    <section class="view active" id="v-chat">
+      <div id="pauseBanner" class="banner" hidden>
+        <b>Tracking pausiert</b>
+        Zwei Tage in Folge waren anstrengend. Wie in deinem Plan festgelegt: zurück zu Erhaltung und intuitivem Essen. Der Chat ist weiter für dich da.
+      </div>
+      <div class="scroll" id="chatScroll"><div id="msgs"></div></div>
+      <div id="preview"><img alt=""><button id="rmImg">Foto entfernen</button></div>
+      <div class="chips" id="chips">
+        <button class="chip" data-t="Das war alles für heute">Das war alles für heute</button>
+        <button class="chip" data-t="Gewicht heute: " data-fill>Gewicht eintragen</button>
+        <button class="chip" data-t="Training heute: " data-fill>Training eintragen</button>
+        <button class="chip" data-t="Neue Körpermaße: Taille , Po , Oberschenkel , Bauch , Brust , Bizeps , Unterbrust " data-fill>Maße eintragen</button>
+      </div>
+      <div class="composer">
+        <button class="iconbtn" id="camBtn" aria-label="Foto">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        </button>
+        <input type="file" id="file" accept="image/*" hidden>
+        <textarea id="input" rows="1" placeholder="Was hast du gegessen?"></textarea>
+        <button class="iconbtn send" id="sendBtn" aria-label="Senden">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- TAGE -->
+    <section class="view" id="v-days"><div class="scroll" id="daysList"></div></section>
+
+    <!-- MASSE -->
+    <section class="view" id="v-measures">
+      <div class="scroll">
+        <div class="mtable-wrap"><table class="mtable" id="mtable"></table></div>
+        <p class="hint">Tippe auf ein Datum, um eine Messung zu bearbeiten. Neue Maße kannst du auch einfach in den Chat schreiben.</p>
+        <button class="btn" id="addMeasure">+ Neue Messung</button>
+      </div>
+    </section>
+  </main>
+
+  <nav>
+    <button data-v="chat" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>Chat</button>
+    <button data-v="days"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>Tage</button>
+    <button data-v="measures"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="8" width="18" height="8" rx="1.5"/><path d="M7 8v3M11 8v4M15 8v3M19 8v4"/></svg>Maße</button>
+    <button data-v="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>Einstellungen</button>
+  </nav>
+</div>
+
+<!-- Einstellungen -->
+<div class="sheet-bg" id="sheetBg"></div>
+<div class="sheet" id="settingsSheet">
+  <div class="sheet-head"><h2>Einstellungen</h2><button data-close>Fertig</button></div>
+  <div class="sheet-body">
+    <div id="pauseSection" class="banner" hidden style="margin:4px 0 8px">
+      <b>Tracking ist pausiert</b>
+      <span>Nimm es erst wieder auf, wenn es sich wirklich ruhig anfühlt.</span>
+      <div class="row"><button class="btn ghost" id="resumeBtn">Tracking wieder aufnehmen</button></div>
+    </div>
+
+    <label class="f">Gemini API-Schlüssel
+      <input type="password" id="sKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="AIza…">
+    </label>
+    <p class="hint">Bekommst du kostenlos unter <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Er bleibt nur auf diesem Gerät.</p>
+
+    <label class="f">Modell
+      <select id="sModel">
+        <option value="gemini-flash-latest">Gemini Flash (immer aktuell) – empfohlen</option>
+        <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+        <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+        <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite (schnell, günstig)</option>
+        <option value="gemini-4-argon">Gemini 4 Argon (stärkstes Modell)</option>
+        <option value="custom">Anderes Modell…</option>
+      </select>
+    </label>
+    <label class="f" id="customWrap" hidden>Modell-ID
+      <input id="sModelCustom" autocapitalize="off" spellcheck="false" placeholder="z. B. gemini-3.8-flash">
+    </label>
+
+    <div class="section">
+      <h4>Coach-Prompt</h4>
+      <label class="f" style="margin-top:4px"><textarea id="sPrompt" spellcheck="false"></textarea></label>
+          </div>
+
+    <label class="f">Wie viele letzte Nachrichten Gemini wörtlich sieht
+      <input type="number" id="sCtx" min="6" max="200" inputmode="numeric">
+    </label>
+    <p class="hint">Alles Ältere kennt Gemini über die Datenbank (Mahlzeiten, Tage, Wochen, Maße, Training). Deshalb läuft der Kontext nie voll.</p>
+
+    <div class="section">
+      <h4>Sicherung</h4>
+      <p class="hint" style="margin-top:0">Die Daten liegen nur auf diesem iPhone. Sichere sie ab und zu, z. B. in iCloud Drive.</p>
+      <div class="row"><button class="btn ghost" id="exportBtn">Sichern</button><button class="btn ghost" id="importBtn">Wiederherstellen</button></div>
+      <input type="file" id="importFile" hidden>
+    </div>
+
+    <div class="section">
+      <h4>Datenschutz</h4>
+      <p class="hint" style="margin-top:0">Im kostenlosen Gemini-Tarif darf Google Eingaben zur Verbesserung seiner Produkte nutzen, auch durch menschliche Prüfer. Mit aktivierter Abrechnung im Google-Konto gilt das nicht.</p>
+    </div>
+
+    <div class="section">
+      <button class="btn danger" id="wipeBtn">Alle Daten löschen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Messung -->
+<div class="sheet" id="measureSheet">
+  <div class="sheet-head"><h2 id="mTitle">Neue Messung</h2><button data-close>Abbrechen</button></div>
+  <div class="sheet-body">
+    <label class="f">Datum<input type="date" id="mDate"></label>
+    <div class="grid2" id="mFields"></div>
+    <div class="row" style="margin-top:18px"><button class="btn" id="mSave">Speichern</button></div>
+    <div class="row"><button class="btn danger" id="mDelete" hidden>Messung löschen</button></div>
+  </div>
+</div>
+
+<script type="text/plain" id="defaultPrompt">Du bist mein freundlicher, ruhiger Ernährungscoach.
+(Platzhalter – ersetze diesen Text durch deinen eigenen Prompt oder spiele unter "Wiederherstellen" deine Einrichtungsdatei ein.)
+Nenne im Chat niemals Kalorienzahlen. Protein und Grammangaben sind erlaubt.</script>
+
+<script>
+'use strict';
+/* =========================================================
+   App-Regeln, die Gemini zusätzlich zum (änderbaren) Prompt bekommt.
+   ========================================================= */
+const APP_RULES = `
+=== TECHNISCHE APP-REGELN (haben Vorrang vor Formatvorgaben im Prompt oben) ===
+Du läufst in einer App mit eigener Datenbank. Der Chatverlauf, den du siehst, enthält nur die letzten Nachrichten.
+Alles Ältere steht im Block "DATENBANK", den die App jeder Nutzernachricht voranstellt. Dieser Block ist die verlässliche Wahrheit.
+Die Nutzerin sieht den DATENBANK-Block nicht. Zitiere daraus niemals Kalorienwerte.
+
+1) ANTWORTFORMAT: Antworte IMMER mit genau einem JSON-Objekt:
+   {"reply": "<deine Chat-Antwort in Markdown>", "ops": [ ...Datenbank-Operationen... ]}
+   "ops" ist eine Liste (darf leer sein).
+
+2) SYNC & ÜBERTRAG ERSETZT: Die App speichert alles selbst. Gib KEINE SYNC-/Base64-Strings und KEINE Übertrags-Blöcke aus
+   und frage NIE nach einem Übertrags-Block oder Startdaten, die bereits in der DATENBANK stehen.
+   Die Tageszeile im Code-Block gibst du weiterhin aus, aber ohne das SYNC-Feld.
+
+3) KALORIEN: Im "reply" stehen NIEMALS Kalorienzahlen, auch keine Spannen und nicht die Benchmark. Nährwerte gehören nur in "ops".
+
+4) OPERATIONEN (Datum immer "YYYY-MM-DD", Uhrzeit "HH:MM", Zahlen als Zahlen):
+   - Mahlzeit verbuchen: {"op":"meal_add","date":..,"time":..,"label":"Frühstück|Mittag|Abend|Snack|…","items":"ca. 150 g Quark, 30 g Nüsse","kcal":..,"p":..,"c":..,"f":..,"fiber":..}
+   - Mahlzeit korrigieren: {"op":"meal_update","id":<id aus DATENBANK>, ...nur geänderte Felder}
+   - Mahlzeit löschen: {"op":"meal_delete","id":<id>}
+   - Gewicht: {"op":"weight","date":..,"kg":..}
+   - Tagesauswertung/Tagesabschluss: {"op":"day","date":..,"status":"Im Zielkorridor|Puffer genutzt|Warnung: Zu wenig!","note":"kurze Notiz","closed":true}
+   - Antworten auf die 3 Kontrollfragen: {"op":"checkin","date":..,"binge":true|false,"compensation":true|false,"guilt":true|false,"food_noise":"niedrig|mittel|hoch"}
+     binge = starker Binge-Druck/Drang nach Essanfall; compensation = Drang, Essen durch Sport/Hungern auszugleichen; guilt = starke Schuldgefühle.
+   - Training: {"op":"training","date":..,"text":"z. B. Beine/Po: Hip Thrust 4x10 60 kg, RDL 3x10 40 kg"}
+   - Körpermaße (cm, Gewicht in kg; nur genannte Felder): {"op":"measures","date":..,"gewicht":..,"taille":..,"po":..,"oberschenkel":..,"bauch":..,"brust":..,"bizeps":..,"unterbrust":..}
+   Verbuche jede genannte Mahlzeit genau einmal. Prüfe in der DATENBANK, ob sie schon verbucht ist (keine Doppelungen). Nachträge zu einem früheren Tag bekommen dessen Datum.
+   Wenn die Nutzerin eine Mahlzeit korrigiert, nutze meal_update mit der passenden id.
+
+5) PROTEIN: Rechne den Protein-Stand aus der DATENBANK plus den Mahlzeiten, die du gerade verbuchst.
+
+6) ABBRUCH-PROTOKOLL: Die App wertet die checkin-Daten aus. Steht in der DATENBANK "TRACKING PAUSIERT", dann verbuchst du KEINE Mahlzeiten mehr,
+   bewertest nichts, nennst keine Zahlen, sondern begleitest ruhig in Richtung intuitives Essen und Erhaltung.
+`;
+
+const MEASURE_FIELDS = [
+  ['gewicht','Gewicht','kg'], ['taille','Taille','cm'], ['po','Po','cm'], ['oberschenkel','Oberschenkel','cm'],
+  ['bauch','Bauch','cm'], ['brust','Brust','cm'], ['bizeps','Bizeps','cm'], ['unterbrust','Unterbrust','cm']
+];
+const SEED_MEASURES = []; // persönliche Daten kommen über die Einrichtungsdatei, nicht in den öffentlichen Code
+const PROTEIN_GOAL = 100;
+
+/* ---------------- Helfer ---------------- */
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+const pad = n => String(n).padStart(2,'0');
+const isoDate = (d=new Date()) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const hhmm = (d=new Date()) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const parseISO = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
+const WD = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+const WDL = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+const fmtDate = s => { const d = parseISO(s); return `${WD[d.getDay()]}, ${d.getDate()}.${d.getMonth()+1}.`; };
+const fmtNum = (n, dec=1) => (n==null || n==='' || isNaN(n)) ? '–' : (+n).toLocaleString('de-DE',{maximumFractionDigits:dec});
+function isoWeek(d){ const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - day);
+  const y0 = new Date(Date.UTC(t.getUTCFullYear(),0,1)); return {year:t.getUTCFullYear(), week:Math.ceil(((t - y0)/864e5 + 1)/7)}; }
+const weekKey = s => { const w = isoWeek(parseISO(s)); return `${w.year}-KW${pad(w.week)}`; };
+function mondayOf(s){ const d = parseISO(s); const k = (d.getDay()+6)%7; d.setDate(d.getDate()-k); return isoDate(d); }
+const num = v => (v===null || v===undefined || v==='' || isNaN(Number(v))) ? null : Number(v);
+const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+/* Sicherheitsnetz: Kalorienzahlen aus sichtbarem Text entfernen */
+function scrubCalories(t){
+  if (!t) return t;
+  return t
+    .replace(/\b\d{1,2}[.,]?\d{3}\s*(?:[-–]|bis)\s*\d{1,2}[.,]?\d{3}\s*(?:k?cal|kilokalorien|kalorien)\b/gi, '•••')
+    .replace(/~?\s*\d[\d.,]*\s*(?:[-–]|bis)\s*\d[\d.,]*\s*(?:k?cal|kilokalorien|kalorien)\b/gi, '•••')
+    .replace(/~?\s*\d[\d.,]*\s*(?:k?cal|kilokalorien|kalorien)\b/gi, '•••')
+    .replace(/\b(k?cal|kalorien|kilokalorien)\s*[:=]?\s*~?\s*\d[\d.,]*/gi, '$1 •••')
+    .replace(/\b1[.,]?750\b/g, '•••');
+}
+
+/* ---------------- IndexedDB ---------------- */
+let db;
+function openDB(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('coach', 1);
+    r.onupgradeneeded = () => {
+      const d = r.result;
+      d.createObjectStore('messages', {keyPath:'id', autoIncrement:true});
+      d.createObjectStore('meals', {keyPath:'id', autoIncrement:true}).createIndex('date','date');
+      d.createObjectStore('days', {keyPath:'date'});
+      d.createObjectStore('measures', {keyPath:'date'});
+      d.createObjectStore('training', {keyPath:'id', autoIncrement:true}).createIndex('date','date');
+    };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+function tx(store, mode, fn){
+  return new Promise((res, rej) => {
+    const t = db.transaction(store, mode); const s = t.objectStore(store);
+    let out; const r = fn(s); if (r) r.onsuccess = () => out = r.result;
+    t.oncomplete = () => res(out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+  });
+}
+const all = store => tx(store, 'readonly', s => s.getAll());
+const get = (store, key) => tx(store, 'readonly', s => s.get(key));
+const put = (store, v) => tx(store, 'readwrite', s => s.put(v));
+const add = (store, v) => tx(store, 'readwrite', s => s.add(v));
+const del = (store, key) => tx(store, 'readwrite', s => s.delete(key));
+const clear = store => tx(store, 'readwrite', s => s.clear());
+
+/* ---------------- Einstellungen ---------------- */
+const LS = {
+  get(k, d){ try { const v = localStorage.getItem('coach.'+k); return v===null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v){ try { localStorage.setItem('coach.'+k, JSON.stringify(v)); } catch {} }
+};
+const settings = {
+  get key(){ return LS.get('key',''); },
+  get model(){ return LS.get('model','gemini-flash-latest'); },
+  get prompt(){ return LS.get('prompt', null) ?? $('#defaultPrompt').textContent; },
+  get ctx(){ return LS.get('ctx', 30); },
+  get paused(){ return LS.get('paused', false); }
+};
+
+/* ---------------- Markdown (klein, sicher) ---------------- */
+function inline(s){
+  return s.replace(/`([^`]+)`/g,'<code>$1</code>')
+          .replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>')
+          .replace(/(^|[^*])\*([^*\n]+)\*/g,'$1<i>$2</i>');
+}
+function md(src){
+  const out = []; const parts = String(src).split(/```[\w-]*\n?/);
+  parts.forEach((part, i) => {
+    if (i % 2 === 1) { out.push(`<pre><code>${esc(part.replace(/\n$/,''))}</code></pre>`); return; }
+    const lines = esc(part).split('\n'); let j = 0;
+    while (j < lines.length) {
+      const l = lines[j];
+      if (/^\s*\|.*\|\s*$/.test(l)) {
+        const rows = []; while (j < lines.length && /^\s*\|.*\|\s*$/.test(lines[j])) rows.push(lines[j++]);
+        const cells = r => r.trim().replace(/^\||\|$/g,'').split('|').map(c => inline(c.trim()));
+        const body = rows.filter(r => !/^\s*\|[\s:|-]+\|\s*$/.test(r));
+        const [h, ...rest] = body;
+        out.push(`<div class="tbl"><table><thead><tr>${cells(h).map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${rest.map(r=>`<tr>${cells(r).map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+        continue;
+      }
+      if (/^\s*([-*•]|\d+\.)\s+/.test(l)) {
+        const ordered = /^\s*\d+\./.test(l); const items = [];
+        while (j < lines.length && /^\s*([-*•]|\d+\.)\s+/.test(lines[j])) items.push(lines[j++].replace(/^\s*([-*•]|\d+\.)\s+/,''));
+        out.push(`<${ordered?'ol':'ul'}>${items.map(x=>`<li>${inline(x)}</li>`).join('')}</${ordered?'ol':'ul'}>`);
+        continue;
+      }
+      const h = l.match(/^\s*#{1,6}\s+(.*)/);
+      if (h) { out.push(`<h4>${inline(h[1])}</h4>`); j++; continue; }
+      if (!l.trim()) { j++; continue; }
+      const para = []; while (j < lines.length && lines[j].trim() && !/^\s*(\|.*\||[-*•]\s|\d+\.\s|#{1,6}\s)/.test(lines[j])) para.push(lines[j++]);
+      if (!para.length) { para.push(lines[j++]); }
+      out.push(`<p>${inline(para.join('<br>'))}</p>`);
+    }
+  });
+  return out.join('');
+}
+
+/* ---------------- Datenbank-Kontext für Gemini ---------------- */
+function sumMeals(ms){ const s = {kcal:0,p:0,c:0,f:0,fiber:0}; ms.forEach(m => { for (const k in s) s[k] += num(m[k]) || 0; }); return s; }
+const r0 = n => Math.round(n);
+
+async function buildContext(){
+  const now = new Date(); const today = isoDate(now);
+  const [meals, days, measures, training] = await Promise.all([all('meals'), all('days'), all('measures'), all('training')]);
+  const byDate = {}; meals.forEach(m => (byDate[m.date] ||= []).push(m));
+  const dayMap = Object.fromEntries(days.map(d => [d.date, d]));
+  const dates = [...new Set([...Object.keys(byDate), ...Object.keys(dayMap), ...training.map(t=>t.date)])].sort();
+  const w = isoWeek(now); const thisMonday = mondayOf(today);
+  const L = [];
+  L.push('=== DATENBANK (von der App erzeugt, für die Nutzerin unsichtbar) ===');
+  L.push(`Jetzt: ${WDL[now.getDay()]}, ${today} ${hhmm(now)} Uhr | KW ${w.week}/${w.year}`);
+  if (settings.paused) L.push('!!! TRACKING PAUSIERT (Abbruch-Protokoll ausgelöst). Keine Mahlzeiten verbuchen, keine Bewertungen. !!!');
+
+  const dayLine = d => {
+    const ms = byDate[d] || []; const s = sumMeals(ms); const dd = dayMap[d] || {};
+    const tr = training.filter(t => t.date === d).map(t => t.text).join(' / ');
+    const ci = dd.checkin ? `Check-in: Binge ${dd.checkin.binge?'JA':'nein'}, Kompensation ${dd.checkin.compensation?'JA':'nein'}, Schuld ${dd.checkin.guilt?'JA':'nein'}, Food Noise ${dd.checkin.food_noise||'?'}` : 'Check-in: offen';
+    return `${fmtDate(d)} ${d} | Gewicht ${dd.weight ?? '–'} | kcal ${r0(s.kcal)} | P ${r0(s.p)} g C ${r0(s.c)} F ${r0(s.f)} Bal ${r0(s.fiber)} | Status ${dd.status || 'offen'}${dd.closed?' (abgeschlossen)':''} | Training: ${tr || '–'} | ${ci}${dd.note?' | Notiz: '+dd.note:''}`;
+  };
+
+  // Heute im Detail
+  const tm = byDate[today] || []; const ts = sumMeals(tm);
+  L.push(`\n# HEUTE (${today})`);
+  if (!tm.length) L.push('Noch keine Mahlzeiten verbucht.');
+  tm.sort((a,b)=>(a.time||'').localeCompare(b.time||'')).forEach(m =>
+    L.push(`[id ${m.id}] ${m.time||''} ${m.label||''}: ${m.items} | kcal ${r0(num(m.kcal)||0)} P ${num(m.p)??'?'} C ${num(m.c)??'?'} F ${num(m.f)??'?'} Bal ${num(m.fiber)??'?'}`));
+  L.push(`Summe heute: kcal ${r0(ts.kcal)} | Protein ${r0(ts.p)} g von ${PROTEIN_GOAL} g`);
+  if (dayMap[today]?.weight) L.push(`Gewicht heute: ${dayMap[today].weight} kg`);
+
+  // Gestern im Detail (für Nachträge/Korrekturen)
+  const y = new Date(now); y.setDate(y.getDate()-1); const yd = isoDate(y);
+  if (byDate[yd]?.length) {
+    L.push(`\n# GESTERN (${yd}) Mahlzeiten`);
+    byDate[yd].forEach(m => L.push(`[id ${m.id}] ${m.time||''} ${m.label||''}: ${m.items} | kcal ${r0(num(m.kcal)||0)} P ${num(m.p)??'?'}`));
+  }
+
+  // Aktuelle Woche
+  L.push(`\n# DIESE WOCHE (ab Mo ${thisMonday})`);
+  const weekDates = dates.filter(d => d >= thisMonday);
+  if (!weekDates.length) L.push('Noch keine Einträge.');
+  weekDates.forEach(d => L.push(dayLine(d)));
+
+  // Vorwochen als Zusammenfassung
+  const weeks = {};
+  dates.filter(d => d < thisMonday).forEach(d => (weeks[weekKey(d)] ||= []).push(d));
+  const wkeys = Object.keys(weeks).sort();
+  if (wkeys.length) {
+    L.push('\n# VORWOCHEN (Wochenschnitte)');
+    wkeys.forEach(k => {
+      const ds = weeks[k]; const withMeals = ds.filter(d => byDate[d]?.length);
+      const avg = f => withMeals.length ? withMeals.reduce((a,d)=>a + sumMeals(byDate[d])[f], 0) / withMeals.length : null;
+      const ws = ds.map(d => num(dayMap[d]?.weight)).filter(v => v!=null);
+      const aw = ws.length ? (ws.reduce((a,b)=>a+b,0)/ws.length).toFixed(2) : '–';
+      const trs = training.filter(t => ds.includes(t.date));
+      const flags = ds.filter(d => { const c = dayMap[d]?.checkin; return c && (c.binge || c.compensation || c.guilt); }).length;
+      L.push(`${k}: Schnitt Gewicht ${aw} kg | Schnitt kcal ${avg('kcal')!=null?r0(avg('kcal')):'–'} | Schnitt Protein ${avg('p')!=null?r0(avg('p')):'–'} g | Tage getrackt ${withMeals.length} | Trainings ${trs.length} | Tage mit Warnsignal ${flags}`);
+      if (k === wkeys[wkeys.length-1]) ds.forEach(d => L.push('  ' + dayLine(d)));
+    });
+  }
+
+  // Training (Verlauf)
+  if (training.length) {
+    L.push('\n# TRAININGSVERLAUF');
+    training.sort((a,b)=>a.date.localeCompare(b.date)).slice(-60).forEach(t => L.push(`${t.date} (${weekKey(t.date)}): ${t.text}`));
+  }
+
+  // Körpermaße
+  if (measures.length) {
+    L.push('\n# KÖRPERMASSE (cm, Gewicht kg)');
+    measures.sort((a,b)=>a.date.localeCompare(b.date)).forEach(m =>
+      L.push(`${m.date}: ` + MEASURE_FIELDS.map(([k,l]) => `${l} ${m[k] ?? '–'}`).join(', ')));
+  }
+  L.push('=== ENDE DATENBANK ===');
+  return L.join('\n');
+}
+
+/* ---------------- Operationen anwenden ---------------- */
+async function applyOps(ops){
+  if (!Array.isArray(ops)) return;
+  const today = isoDate();
+  const validDate = d => /^\d{4}-\d{2}-\d{2}$/.test(d||'') ? d : today;
+  for (const o of ops) {
+    try {
+      if (!o || typeof o !== 'object') continue;
+      const date = validDate(o.date);
+      switch (o.op) {
+        case 'meal_add':
+          if (settings.paused) break;
+          await add('meals', {date, time:o.time||hhmm(), label:o.label||'', items:o.items||'',
+            kcal:num(o.kcal), p:num(o.p), c:num(o.c), f:num(o.f), fiber:num(o.fiber), created:Date.now()});
+          break;
+        case 'meal_update': {
+          const m = await get('meals', Number(o.id)); if (!m) break;
+          for (const k of ['date','time','label','items']) if (o[k]) m[k] = k==='date' ? validDate(o[k]) : o[k];
+          for (const k of ['kcal','p','c','f','fiber']) if (num(o[k]) != null) m[k] = num(o[k]);
+          await put('meals', m); break;
+        }
+        case 'meal_delete': await del('meals', Number(o.id)); break;
+        case 'weight': {
+          const kg = num(o.kg); if (kg == null) break;
+          const d = await get('days', date) || {date}; d.weight = kg; await put('days', d); break;
+        }
+        case 'day': {
+          const d = await get('days', date) || {date};
+          if (o.status) d.status = String(o.status);
+          if (o.note) d.note = String(o.note);
+          if (o.closed != null) d.closed = !!o.closed;
+          await put('days', d); break;
+        }
+        case 'checkin': {
+          const d = await get('days', date) || {date};
+          d.checkin = {binge:!!o.binge, compensation:!!o.compensation, guilt:!!o.guilt, food_noise:o.food_noise||''};
+          await put('days', d); await checkCircuitBreaker(); break;
+        }
+        case 'training': if (o.text) await add('training', {date, text:String(o.text)}); break;
+        case 'measures': {
+          const m = await get('measures', date) || {date};
+          let any = false; for (const [k] of MEASURE_FIELDS) if (num(o[k]) != null) { m[k] = num(o[k]); any = true; }
+          if (any) await put('measures', m); break;
+        }
+      }
+    } catch (e) { console.warn('op failed', o, e); }
+  }
+}
+
+/* Abbruch-Protokoll: 2 aufeinanderfolgende Tage mit Warnsignal → pausieren */
+async function checkCircuitBreaker(){
+  const days = (await all('days')).filter(d => d.checkin).sort((a,b)=>a.date.localeCompare(b.date));
+  const flag = d => d.checkin.binge || d.checkin.compensation || d.checkin.guilt;
+  for (let i = 1; i < days.length; i++) {
+    const a = parseISO(days[i-1].date), b = parseISO(days[i].date);
+    const consecutive = Math.round((b - a) / 864e5) === 1;
+    const since = LS.get('resumedAt', '0000-00-00');
+    if (consecutive && flag(days[i-1]) && flag(days[i]) && days[i-1].date >= since && days[i].date >= since) {
+      if (!settings.paused) { LS.set('paused', true); renderPause(); }
+      return;
+    }
+  }
+}
+function renderPause(){
+  $('#pauseBanner').hidden = !settings.paused;
+  $('#pauseSection').hidden = !settings.paused;
+}
+
+/* ---------------- Gemini ---------------- */
+async function callGemini(userText, image){
+  const key = settings.key;
+  if (!key) throw new Error('Bitte zuerst den Gemini API-Schlüssel in den Einstellungen eintragen.');
+  const ctxBlock = await buildContext();
+  const history = (await all('messages')).filter(m => !m.error && !m.pending);
+  const lastUser = history.pop(); // die gerade gesendete Nachricht
+  if (lastUser?.role === 'user') { userText = lastUser.text || userText; if (!image && lastUser.img) image = lastUser.img; }
+  const recent = history.slice(-Math.max(0, settings.ctx - 1));
+  const contents = [];
+  for (const m of recent) {
+    const role = m.role === 'user' ? 'user' : 'model';
+    const text = (m.img ? '[Foto] ' : '') + (m.text || '');
+    if (!text.trim()) continue;
+    const last = contents[contents.length-1];
+    if (last && last.role === role) last.parts[0].text += '\n\n' + text;
+    else contents.push({role, parts:[{text}]});
+  }
+  const parts = [{text: `${ctxBlock}\n\n=== NACHRICHT DER NUTZERIN (${hhmm()} Uhr) ===\n${userText || '(nur Foto)'}`}];
+  if (image) parts.push({inlineData:{mimeType:'image/jpeg', data:image.split(',')[1]}});
+  const last = contents[contents.length-1];
+  if (last && last.role === 'user') last.parts.push(...parts); else contents.push({role:'user', parts});
+  if (contents[0]?.role === 'model') contents.unshift({role:'user', parts:[{text:'(Beginn des Verlaufs)'}]});
+
+  const body = {
+    systemInstruction: {parts:[{text: settings.prompt + '\n' + APP_RULES}]},
+    contents,
+    generationConfig: {responseMimeType:'application/json', temperature:0.4}
+  };
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(settings.model)}:generateContent`, {
+    method:'POST', headers:{'Content-Type':'application/json','x-goog-api-key':key}, body:JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data?.error?.message || `HTTP ${res.status}`;
+    if (res.status === 400 && /API key/i.test(msg)) throw new Error('Der API-Schlüssel wird nicht akzeptiert. Bitte in den Einstellungen prüfen.');
+    if (res.status === 404) throw new Error(`Das Modell „${settings.model}“ wurde nicht gefunden. Bitte in den Einstellungen ein anderes wählen.`);
+    if (res.status === 429) throw new Error('Gemini meldet zu viele Anfragen (Tageslimit oder kurz zu schnell). Kurz warten und nochmal versuchen.');
+    throw new Error('Gemini-Fehler: ' + msg);
+  }
+  const cand = data.candidates?.[0];
+  const raw = (cand?.content?.parts || []).filter(p => !p.thought && p.text).map(p => p.text).join('');
+  if (!raw) throw new Error(cand?.finishReason ? `Keine Antwort (Grund: ${cand.finishReason}).` : 'Leere Antwort von Gemini.');
+  return parseModel(raw);
+}
+function parseModel(raw){
+  let s = raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'');
+  try { const j = JSON.parse(s); return {reply: String(j.reply ?? ''), ops: Array.isArray(j.ops) ? j.ops : []}; }
+  catch {
+    const a = s.indexOf('{'), b = s.lastIndexOf('}');
+    if (a >= 0 && b > a) { try { const j = JSON.parse(s.slice(a, b+1)); return {reply:String(j.reply ?? ''), ops:Array.isArray(j.ops)?j.ops:[]}; } catch {} }
+    return {reply: s, ops: []};
+  }
+}
+
+/* ---------------- Chat-UI ---------------- */
+const msgsEl = $('#msgs'), scrollEl = $('#chatScroll'), input = $('#input'), sendBtn = $('#sendBtn');
+let pendingImg = null, busy = false;
+
+function bubble(m){
+  const el = document.createElement('div');
+  el.className = 'msg ' + (m.error ? 'err' : m.role);
+  const t = new Date(m.ts);
+  if (m.error) {
+    el.innerHTML = `${esc(m.text)}<br><button class="retry">Nochmal versuchen</button>`;
+    el.querySelector('.retry').onclick = () => retry(m);
+  } else if (m.role === 'user') {
+    el.innerHTML = (m.img ? `<img src="${m.img}" alt="Foto">` : '') + (m.text ? esc(m.text).replace(/\n/g,'<br>') : '') + `<div class="time">${hhmm(t)}</div>`;
+  } else {
+    el.innerHTML = md(scrubCalories(m.text)) + `<div class="time">${hhmm(t)}</div>`;
+  }
+  return el;
+}
+let lastSepDate = null;
+function appendMsg(m){
+  const d = isoDate(new Date(m.ts));
+  if (d !== lastSepDate) {
+    lastSepDate = d;
+    const s = document.createElement('div'); s.className = 'daysep';
+    s.textContent = d === isoDate() ? 'Heute' : fmtDate(d);
+    msgsEl.appendChild(s);
+  }
+  const el = bubble(m); el.dataset.id = m.id; msgsEl.appendChild(el); return el;
+}
+const toBottom = () => requestAnimationFrame(() => scrollEl.scrollTop = scrollEl.scrollHeight);
+
+async function renderChat(){
+  msgsEl.innerHTML = ''; lastSepDate = null;
+  const ms = await all('messages');
+  if (!ms.length) {
+    const intro = {role:'model', ts:Date.now(), text: settings.key
+      ? 'Hi! Schreib mir einfach, was du gegessen hast, oder schick ein Foto. Gewicht, Training und Maße kannst du genauso in den Chat schreiben. Ich merke mir alles, auch über Wochen.'
+      : 'Hi! Zwei Schritte, dann geht es los:\n\n1. Unten auf **Einstellungen** tippen und deinen **Gemini API-Schlüssel** eintragen.\n2. Dort unter **Sicherung → Wiederherstellen** deine **Einrichtungsdatei** auswählen. Sie enthält deinen Prompt und deine bisherigen Maße.\n\nDanach schreibst du mir einfach, was du gegessen hast, oder schickst ein Foto.'};
+    appendMsg(intro);
+  }
+  ms.forEach(appendMsg); toBottom(); refreshProtein();
+}
+
+function showTyping(){
+  const el = document.createElement('div'); el.className = 'msg model'; el.id = 'typing';
+  el.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+  msgsEl.appendChild(el); toBottom();
+}
+const hideTyping = () => $('#typing')?.remove();
+
+async function send(){
+  const text = input.value.trim(); const img = pendingImg;
+  if ((!text && !img) || busy) return;
+  busy = true; sendBtn.disabled = true;
+  input.value = ''; autoGrow(); clearImg();
+  const m = {role:'user', ts:Date.now(), text, img: img ? img.thumb : null};
+  m.id = await add('messages', m); appendMsg(m); toBottom();
+  await talk(text, img?.full);
+}
+async function talk(text, full){
+  showTyping();
+  try {
+    const {reply, ops} = await callGemini(text, full);
+    await applyOps(ops);
+    const r = {role:'model', ts:Date.now(), text: reply || '(verbucht)'};
+    r.id = await add('messages', r);
+    hideTyping(); appendMsg(r); toBottom(); refreshProtein();
+  } catch (e) {
+    hideTyping();
+    const er = {role:'model', error:true, ts:Date.now(), text:e.message || String(e), retryText:text};
+    er.id = await add('messages', er); appendMsg(er); toBottom();
+  } finally { busy = false; sendBtn.disabled = false; }
+}
+async function retry(errMsg){
+  if (busy) return;
+  await del('messages', errMsg.id);
+  $(`.msg[data-id="${errMsg.id}"]`)?.remove();
+  busy = true; sendBtn.disabled = true;
+  await talk(errMsg.retryText || '', null);
+}
+
+async function refreshProtein(){
+  const today = isoDate(); const ms = (await all('meals')).filter(m => m.date === today);
+  const pill = $('#proteinPill');
+  if (!ms.length || settings.paused) { pill.hidden = true; return; }
+  const p = r0(sumMeals(ms).p); pill.hidden = false;
+  pill.textContent = `Protein ${p} / ${PROTEIN_GOAL} g`; pill.classList.toggle('ok', p >= PROTEIN_GOAL*0.9);
+}
+
+/* Foto verkleinern */
+function loadImage(file){
+  return new Promise((res, rej) => { const url = URL.createObjectURL(file); const im = new Image();
+    im.onload = () => { URL.revokeObjectURL(url); res(im); }; im.onerror = rej; im.src = url; });
+}
+function resize(im, max, q){
+  const s = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+  const c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth*s); c.height = Math.round(im.naturalHeight*s);
+  c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', q);
+}
+$('#camBtn').onclick = () => $('#file').click();
+$('#file').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try { const im = await loadImage(f);
+    pendingImg = {full: resize(im, 1280, 0.82), thumb: resize(im, 640, 0.75)};
+    $('#preview img').src = pendingImg.thumb; $('#preview').classList.add('show'); input.focus();
+  } catch { alert('Das Foto konnte nicht geladen werden.'); }
+};
+function clearImg(){ pendingImg = null; $('#preview').classList.remove('show'); }
+$('#rmImg').onclick = clearImg;
+
+function autoGrow(){ input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 140) + 'px'; }
+input.addEventListener('input', autoGrow);
+input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); send(); } });
+sendBtn.onclick = send;
+$$('.chip').forEach(c => c.onclick = () => {
+  if (c.hasAttribute('data-fill')) { input.value = c.dataset.t; autoGrow(); input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  else { input.value = c.dataset.t; send(); }
+});
+
+/* ---------------- Tage ---------------- */
+async function renderDays(){
+  const [meals, days, training] = await Promise.all([all('meals'), all('days'), all('training')]);
+  const byDate = {}; meals.forEach(m => (byDate[m.date] ||= []).push(m));
+  const dayMap = Object.fromEntries(days.map(d => [d.date, d]));
+  const dates = [...new Set([...Object.keys(byDate), ...Object.keys(dayMap), ...training.map(t=>t.date)])].sort().reverse();
+  const el = $('#daysList');
+  if (!dates.length) { el.innerHTML = '<div class="empty">Hier erscheinen deine Tage, sobald du im Chat etwas einträgst.</div>'; return; }
+  let html = '', lastWeek = null;
+  for (const d of dates) {
+    const wk = isoWeek(parseISO(d)); const wkLabel = `KW ${wk.week}`;
+    if (wkLabel !== lastWeek) { html += `<div class="weekhead">${wkLabel}</div>`; lastWeek = wkLabel; }
+    const ms = (byDate[d] || []).sort((a,b)=>(a.time||'').localeCompare(b.time||''));
+    const dd = dayMap[d] || {}; const p = r0(sumMeals(ms).p);
+    const tr = training.filter(t => t.date === d);
+    const good = /zielkorridor/i.test(dd.status || '');
+    html += `<div class="card"><h3>${esc(fmtDate(d))}${dd.status && !settings.paused ? `<span class="status ${good?'good':''}">${esc(scrubCalories(dd.status))}</span>` : ''}</h3>
+      <div class="sub">${dd.weight ? `Gewicht ${fmtNum(dd.weight,2)} kg` : 'Kein Gewicht eingetragen'}</div>
+      ${ms.length ? `<div class="bar"><span style="width:${Math.min(100, p/PROTEIN_GOAL*100)}%"></span></div>
+      <div class="kv"><span>Protein</span><span>${p} / ${PROTEIN_GOAL} g</span></div>` : ''}
+      ${ms.length || tr.length ? `<ul class="meals">${ms.map(m => `<li><span>${esc(m.time||'')} ${esc(m.label||'')}</span>${esc(scrubCalories(m.items))}</li>`).join('')}
+        ${tr.map(t => `<li><span>Training</span>${esc(t.text)}</li>`).join('')}</ul>` : ''}
+      ${dd.note ? `<div class="sub" style="margin-top:8px">${esc(scrubCalories(dd.note))}</div>` : ''}
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+/* ---------------- Maße ---------------- */
+async function renderMeasures(){
+  const ms = (await all('measures')).sort((a,b)=>a.date.localeCompare(b.date));
+  const t = $('#mtable');
+  if (!ms.length) { t.innerHTML = '<tr><td class="empty" style="text-align:center">Noch keine Messungen.</td></tr>'; return; }
+  const head = `<thead><tr><th></th>${ms.map(m => { const d = parseISO(m.date);
+    return `<th><button data-edit="${m.date}">${WD[d.getDay()]}, ${d.getDate()}.${d.getMonth()+1}.${String(d.getFullYear()).slice(2)}</button></th>`; }).join('')}</tr></thead>`;
+  const rows = MEASURE_FIELDS.map(([k, label, unit]) => `<tr><td>${label}</td>${ms.map((m, i) => {
+    const v = m[k]; const prev = i > 0 ? ms[i-1][k] : null;
+    const diff = (v != null && prev != null) ? +(v - prev).toFixed(2) : null;
+    const ds = diff == null ? '' : `<span class="delta">${diff > 0 ? '+' : diff < 0 ? '−' : '±'}${fmtNum(Math.abs(diff), 2)}</span>`;
+    return `<td>${v != null ? fmtNum(v, 2) : '–'}${ds}</td>`; }).join('')}</tr>`).join('');
+  t.innerHTML = head + `<tbody>${rows}</tbody>`;
+  $$('[data-edit]', t).forEach(b => b.onclick = () => openMeasure(b.dataset.edit));
+  const wrap = $('.mtable-wrap'); requestAnimationFrame(() => wrap.scrollLeft = wrap.scrollWidth);
+}
+$('#mFields').innerHTML = MEASURE_FIELDS.map(([k, l, u]) =>
+  `<label class="f">${l} (${u})<input type="number" step="0.05" inputmode="decimal" data-k="${k}"></label>`).join('');
+let editingMeasure = null;
+async function openMeasure(date){
+  editingMeasure = date || null;
+  const m = date ? await get('measures', date) : null;
+  $('#mTitle').textContent = date ? 'Messung bearbeiten' : 'Neue Messung';
+  $('#mDate').value = date || isoDate();
+  $$('#mFields input').forEach(i => i.value = m?.[i.dataset.k] ?? '');
+  $('#mDelete').hidden = !date;
+  openSheet('#measureSheet');
+}
+$('#addMeasure').onclick = () => openMeasure(null);
+$('#mSave').onclick = async () => {
+  const date = $('#mDate').value || isoDate(); const m = {date};
+  $$('#mFields input').forEach(i => { const v = num(i.value.replace(',', '.')); if (v != null) m[i.dataset.k] = v; });
+  if (editingMeasure && editingMeasure !== date) await del('measures', editingMeasure);
+  await put('measures', m); closeSheets(); renderMeasures();
+};
+$('#mDelete').onclick = async () => {
+  if (!editingMeasure || !confirm('Diese Messung löschen?')) return;
+  await del('measures', editingMeasure); closeSheets(); renderMeasures();
+};
+
+/* ---------------- Sheets & Navigation ---------------- */
+function openSheet(sel){ $('#sheetBg').classList.add('open'); $(sel).classList.add('open'); }
+function closeSheets(){ $('#sheetBg').classList.remove('open'); $$('.sheet').forEach(s => s.classList.remove('open')); }
+$('#sheetBg').onclick = () => { saveSettings(); closeSheets(); };
+$$('[data-close]').forEach(b => b.onclick = () => { saveSettings(); closeSheets(); });
+
+const TITLES = {chat:'Chat', days:'Tage', measures:'Körpermaße'};
+let current = 'chat';
+$$('nav button').forEach(b => b.onclick = () => {
+  const v = b.dataset.v;
+  if (v === 'settings') { loadSettingsUI(); openSheet('#settingsSheet'); return; }
+  current = v;
+  $$('nav button').forEach(x => x.classList.toggle('active', x === b));
+  $$('.view').forEach(x => x.classList.toggle('active', x.id === 'v-' + v));
+  $('#title').textContent = TITLES[v];
+  if (v === 'days') renderDays(); if (v === 'measures') renderMeasures(); if (v === 'chat') toBottom();
+});
+
+/* ---------------- Einstellungen-UI ---------------- */
+const KNOWN_MODELS = [...$('#sModel').options].map(o => o.value);
+function loadSettingsUI(){
+  $('#sKey').value = settings.key;
+  const m = settings.model;
+  if (KNOWN_MODELS.includes(m)) { $('#sModel').value = m; $('#customWrap').hidden = true; }
+  else { $('#sModel').value = 'custom'; $('#customWrap').hidden = false; $('#sModelCustom').value = m; }
+  $('#sPrompt').value = settings.prompt; $('#sCtx').value = settings.ctx; renderPause();
+}
+$('#sModel').onchange = () => { $('#customWrap').hidden = $('#sModel').value !== 'custom'; };
+function saveSettings(){
+  if (!$('#settingsSheet').classList.contains('open')) return;
+  const hadKey = !!settings.key;
+  LS.set('key', $('#sKey').value.trim());
+  const sel = $('#sModel').value;
+  LS.set('model', sel === 'custom' ? ($('#sModelCustom').value.trim() || 'gemini-flash-latest') : sel);
+  const p = $('#sPrompt').value; const def = $('#defaultPrompt').textContent;
+  if (p.trim() && p !== def) LS.set('prompt', p); else localStorage.removeItem('coach.prompt');
+  const c = parseInt($('#sCtx').value, 10); LS.set('ctx', isNaN(c) ? 30 : Math.min(200, Math.max(6, c)));
+  if (!hadKey && settings.key) renderChat();
+}
+$('#resumeBtn').onclick = () => {
+  if (!confirm('Tracking wirklich wieder aufnehmen? Mach das nur, wenn sich Essen gerade ruhig und entspannt anfühlt.')) return;
+  LS.set('paused', false); LS.set('resumedAt', isoDate()); renderPause(); refreshProtein();
+};
+
+/* Sicherung: als kodierte Datei, damit Zahlen nicht im Klartext lesbar sind */
+$('#exportBtn').onclick = async () => {
+  const dump = {v:1, at:new Date().toISOString(), settings:{model:settings.model, prompt:LS.get('prompt',null), ctx:settings.ctx, paused:settings.paused, resumedAt:LS.get('resumedAt',null)}};
+  for (const s of ['messages','meals','days','measures','training']) dump[s] = await all(s);
+  const enc = btoa(unescape(encodeURIComponent(JSON.stringify(dump))));
+  const name = `satt-sicherung-${isoDate()}.satt`;
+  const file = new File([enc], name, {type:'text/plain'});
+  if (navigator.canShare && navigator.canShare({files:[file]})) { try { await navigator.share({files:[file], title:name}); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
+$('#importBtn').onclick = () => $('#importFile').click();
+$('#importFile').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const txt = (await f.text()).trim();
+    const dump = JSON.parse(txt.startsWith('{') ? txt : decodeURIComponent(escape(atob(txt))));
+    if (!confirm('Alle aktuellen Daten durch die Sicherung ersetzen?')) return;
+    for (const s of ['messages','meals','days','measures','training']) { await clear(s); for (const r of (dump[s] || [])) await put(s, r); }
+    const st = dump.settings || {};
+    if (st.model) LS.set('model', st.model); if (st.prompt) LS.set('prompt', st.prompt);
+    if (st.ctx) LS.set('ctx', st.ctx); LS.set('paused', !!st.paused); if (st.resumedAt) LS.set('resumedAt', st.resumedAt);
+    loadSettingsUI(); renderChat(); alert('Sicherung wiederhergestellt.');
+  } catch { alert('Diese Datei konnte nicht gelesen werden.'); }
+};
+$('#wipeBtn').onclick = async () => {
+  if (!confirm('Wirklich ALLE Daten löschen (Chat, Mahlzeiten, Tage, Maße, Training)? Das kann nicht rückgängig gemacht werden.')) return;
+  for (const s of ['messages','meals','days','measures','training']) await clear(s);
+  LS.set('paused', false); LS.set('seeded', false); await seed(); renderPause(); renderChat(); closeSheets();
+};
+
+/* ---------------- iOS-Tastatur & Höhe ---------------- */
+function fitViewport(){
+  const vv = window.visualViewport; const h = vv ? vv.height : window.innerHeight;
+  document.documentElement.style.setProperty('--app-h', h + 'px');
+  document.body.classList.toggle('kb', vv ? (window.innerHeight - vv.height > 120) : false);
+  window.scrollTo(0, 0);
+}
+window.visualViewport?.addEventListener('resize', () => { fitViewport(); if (current === 'chat') toBottom(); });
+window.addEventListener('resize', fitViewport);
+
+/* ---------------- Start ---------------- */
+async function seed(){
+  if (LS.get('seeded', false)) return;
+  for (const m of SEED_MEASURES) if (!(await get('measures', m.date))) await put('measures', m);
+  LS.set('seeded', true);
+}
+(async () => {
+  fitViewport();
+  db = await openDB();
+  await seed();
+  try { navigator.storage?.persist?.(); } catch {}
+  renderPause(); await renderChat();
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+})();
+</script>
+</body>
+</html>
