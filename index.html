@@ -1056,9 +1056,10 @@ async function ghPut(path, text, guard = false){
   if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error('GitHub: ' + (j.message || res.status)); }
 }
 let backupTimer = null, backupRunning = false, backupAgain = false;
-function scheduleBackup(delay = 4000){
+function scheduleBackup(delay = 1500){
   if (!cloud.on) return;
-  clearTimeout(backupTimer); backupTimer = setTimeout(runBackup, delay);
+  LS.set('gDirty', true); // merkt sich offene Änderungen, falls die App vorher geschlossen wird
+  clearTimeout(backupTimer); backupTimer = setTimeout(() => { backupTimer = null; runBackup(); }, delay);
 }
 async function runBackup(force = false){
   if (!cloud.on) return false;
@@ -1071,7 +1072,7 @@ async function runBackup(force = false){
     // Schutz: ein frisch eingerichtetes Gerät überschreibt nie automatisch eine bestehende Cloud-Sicherung
     await ghPut('satt/aktuell.json', env, !force && !LS.get('gLast', 0));
     await ghPut(`satt/verlauf/${isoDate()}.json`, env);
-    LS.set('gLast', Date.now()); LS.set('gErr', null);
+    LS.set('gLast', Date.now()); LS.set('gErr', null); if (!backupAgain) LS.set('gDirty', false);
     return true;
   } catch (e) {
     LS.set('gErr', e.message || String(e)); return false;
@@ -1142,8 +1143,12 @@ async function seed(){
   await seed();
   try { navigator.storage?.persist?.(); } catch {}
   renderPause(); await renderChat(); renderBackupBanner(); renderLocalBanner();
-  if (cloud.on && Date.now() - LS.get('gLast', 0) > 6*3600e3) scheduleBackup(3000);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cloud.on && Date.now() - LS.get('gLast', 0) > 6*3600e3) scheduleBackup(2000); });
+  const needsBackup = () => cloud.on && (LS.get('gDirty', false) || Date.now() - LS.get('gLast', 0) > 6*3600e3);
+  if (needsBackup()) scheduleBackup(1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && backupTimer) { clearTimeout(backupTimer); backupTimer = null; runBackup(); } // beim Wegwischen sofort sichern
+    if (document.visibilityState === 'visible' && needsBackup()) scheduleBackup(1000); // Nachholen beim Öffnen
+  });
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>
