@@ -841,28 +841,40 @@ async function buildContext(){
 }
 
 /* ---------------- Operationen anwenden ---------------- */
-async function applyOps(ops){
-  const touched = {meals:[], workouts:[], weights:[], measures:[], ok:[]};
+// ctx.via: 'chat' (Nachricht der Nutzerin), 'check' (automatische Prüfung) oder 'import' (alter Chat)
+async function applyOps(ops, ctx = {via:'chat'}){
+  const touched = {meals:[], workouts:[], weights:[], measures:[], ok:[], skipped:[]};
   if (!Array.isArray(ops)) return touched;
   const today = isoDate();
-  const validDate = d => /^\d{4}-\d{2}-\d{2}$/.test(d||'') ? d : today;
+  const isDate = d => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
+  const validDate = d => isDate(d) ? d : today;
+  const src = {via:ctx.via, at:Date.now(), ...(ctx.msg ? {msg:String(ctx.msg).slice(0, 160)} : {})};
+  const CHECK_OK = ['meal_update', 'meal_delete', 'workout', 'check_ok'];
   for (const o of ops) {
     try {
       if (!o || typeof o !== 'object') continue;
+      // Schutz: Die Prüfung darf nur korrigieren, nie neu anlegen; Import und Prüfung brauchen immer ein echtes Datum
+      if (ctx.via === 'check' && !CHECK_OK.includes(o.op)) { touched.skipped.push(o.op); continue; }
+      if (ctx.via === 'import' && !isDate(o.date) && !['product_save', 'plan_set', 'check_ok'].includes(o.op)) { touched.skipped.push(o.op); continue; }
+      if (ctx.via === 'check' && o.op === 'workout' && o.id == null) { touched.skipped.push('workout_neu'); continue; }
       const date = validDate(o.date);
       switch (o.op) {
         case 'meal_add': {
           if (settings.paused) break;
           const m = {date, time:o.time||hhmm(), label:o.label||'', items:o.items||'', foods:normFoods(o.foods),
-            kcal:num(o.kcal), p:num(o.p), c:num(o.c), f:num(o.f), fiber:num(o.fiber), created:Date.now()};
+            kcal:num(o.kcal), p:num(o.p), c:num(o.c), f:num(o.f), fiber:num(o.fiber), created:Date.now(), src};
           recalcMeal(m); touched.meals.push(await add('meals', m));
           break;
         }
         case 'meal_update': {
           const m = await get('meals', Number(o.id)); if (!m) break;
-          for (const k of ['date','time','label','items']) if (o[k]) m[k] = k==='date' ? validDate(o[k]) : o[k];
+          const before = {date:m.date, time:m.time, items:m.items, kcal:sumMeals([m]).kcal};
+          // Datum/Uhrzeit nur ändern, wenn die Nutzerin es im Chat verlangt – nie durch Prüfung oder Import
+          const keys = ctx.via === 'chat' ? ['date','time','label','items'] : ['label','items'];
+          for (const k of keys) if (o[k]) { if (k === 'date' && !isDate(o[k])) continue; m[k] = o[k]; }
           if (Array.isArray(o.foods) && o.foods.length) { m.foods = normFoods(o.foods); recalcMeal(m); }
           else for (const k of ['kcal','p','c','f','fiber']) if (num(o[k]) != null) m[k] = num(o[k]);
+          m.history = [...(m.history || []), {...src, before}].slice(-10);
           await put('meals', m); touched.meals.push(m.id); break;
         }
         case 'meal_delete': await del('meals', Number(o.id)); break;
@@ -884,10 +896,11 @@ async function applyOps(ops){
         }
         case 'training': if (o.text) touched.workouts.push(await add('workouts', {date, day:null, note:String(o.text), sets:[], created:Date.now()})); break;
         case 'workout': {
-          const w = {date, day:num(o.day), note:o.note ? String(o.note) : '', sets:normSets(o.sets), created:Date.now()};
+          const w = {date, day:num(o.day), note:o.note ? String(o.note) : '', sets:normSets(o.sets), created:Date.now(), src};
           const old = o.id != null ? await get('workouts', Number(o.id)) : null;
           if (old) { // Korrektur: nur genannte Sätze ersetzen, alle anderen behalten (außer "replace": true)
-            w.id = old.id; w.created = old.created;
+            w.id = old.id; w.created = old.created; w.src = old.src; w.history = [...(old.history || []), src].slice(-10);
+            if (ctx.via !== 'chat') { w.date = old.date; w.day = old.day; }
             if (!o.replace) { const merged = old.sets.map(x => ({...x}));
               for (const x of w.sets) { const i = merged.findIndex(m => sameExercise(m.exercise, x.exercise) && m.set === x.set); if (i >= 0) merged[i] = x; else merged.push(x); }
               w.sets = merged; if (!o.note) w.note = old.note; if (o.day == null) w.day = old.day; if (!o.date) w.date = old.date; }
@@ -1039,6 +1052,13 @@ async function buildCheckReport(date){
   for (const m of ms) {
     const mt = sumMeals([m]);
     L.push('', `${m.time || ''} ${m.label || ''} – ${fmtK(mt.kcal)} kcal`.trim());
+    const VIA = {chat:'Chat', check:'automatische Prüfung', import:'Import alter Chat'};
+    if (m.src) L.push(`   Quelle: ${VIA[m.src.via] || m.src.via}, ${hhmm(new Date(m.src.at))} Uhr${m.src.msg ? ` – „${m.src.msg}“` : ''}`);
+    else if (m.created) L.push(`   Quelle: eingetragen ${hhmm(new Date(m.created))} Uhr (vor Herkunfts-Protokoll)`);
+    for (const hst of (m.history || [])) {
+      const moved = hst.before?.date && hst.before.date !== m.date ? ` (verschoben vom ${fmtDate(hst.before.date)})` : '';
+      L.push(`   Geändert: ${VIA[hst.via] || hst.via}, ${fmtDate(isoDate(new Date(hst.at)))} ${hhmm(new Date(hst.at))} Uhr${moved}${hst.before ? ` – vorher ${fmtK(hst.before.kcal)} kcal` : ''}`);
+    }
     for (const x of mealFoods(m)) {
       const k = kcalOf(x); if (num(x.kcal) == null && k != null) estimated.push(x.name);
       const iss = foodIssues(x);
@@ -1137,7 +1157,7 @@ async function importChat(text, name){
       let res, tries = 0;
       while (true) { try { res = await callGemini(task, null, {check:true, big:true}); break; }
         catch (e) { if (++tries >= 3) throw e; await new Promise(r => setTimeout(r, 4000 * tries)); } }
-      const t = await applyOps(res.ops);
+      const t = await applyOps(res.ops, {via:'import', msg:`${name}, Teil ${i + 1}`});
       for (const k in total) total[k].push(...(t[k] || []));
       const dates = (res.ops || []).map(o => o?.date).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d || '')).sort();
       lastDate = (/^\d{4}-\d{2}-\d{2}$/.test(res.last_date || '') ? res.last_date : null) || dates[dates.length - 1] || lastDate;
@@ -1250,7 +1270,7 @@ async function plausibility(scope, opts = {}){
       batch.map(i => `[${i.ref}] ${i.text}`).join('\n');
     let res;
     try { res = await callGemini(task, null, {check:true}); } catch (e) { renderCheckStatus('Prüfung konnte Gemini nicht erreichen: ' + e.message, true); return; }
-    const t = await applyOps(res.ops); touched.meals.push(...t.meals); touched.workouts.push(...t.workouts);
+    const t = await applyOps(res.ops, {via:'check'}); touched.meals.push(...t.meals); touched.workouts.push(...t.workouts);
     if (res.reply && !opts.quiet) replies.push(res.reply);
     for (const i of batch) await i.mark(); // gilt als geprüft, egal ob korrigiert oder bestätigt
   }
@@ -1355,7 +1375,7 @@ async function talk(text, full){
   showTyping();
   try {
     const {reply, ops} = await callGemini(text, full);
-    const touched = await applyOps(ops);
+    const touched = await applyOps(ops, {via:'chat', msg:text || (full ? '(Foto)' : '')});
     scheduleBackup();
     const r = {role:'model', ts:Date.now(), text: reply || '(verbucht)'};
     r.id = await add('messages', r);
