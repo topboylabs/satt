@@ -401,6 +401,28 @@ a{color:var(--accent)}
     </div>
 
     <div class="section">
+      <h4>Prüfbericht (/prüfen)</h4>
+      <p class="hint" style="margin-top:0">Wer im Chat <b>/prüfen</b> schreibt (oder <b>/prüfen gestern</b>), schickt einen Bericht mit allen Kalorien, Makros und einem Abgleich der Gemini-Aussagen an die hier hinterlegte Person. Im Chat selbst erscheinen keine Zahlen.</p>
+      <label class="f">Versand
+        <select id="ckVia">
+          <option value="off">Aus</option>
+          <option value="mail">E-Mail (über Web3Forms)</option>
+          <option value="whatsapp">WhatsApp (über CallMeBot)</option>
+        </select>
+      </label>
+      <div id="ckMailBox" hidden>
+        <label class="f">Web3Forms-Schlüssel<input id="ckMailKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="xxxxxxxx-xxxx-…"></label>
+        <p class="hint">Auf web3forms.com die Empfänger-E-Mail eintragen. Der Schlüssel kommt per Mail, alle Berichte gehen dann an diese Adresse.</p>
+      </div>
+      <div id="ckWaBox" hidden>
+        <label class="f">WhatsApp-Nummer des Empfängers<input id="ckWaPhone" inputmode="tel" placeholder="+49170…"></label>
+        <label class="f">CallMeBot-Schlüssel<input id="ckWaKey" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <p class="hint">Der Empfänger schickt einmalig per WhatsApp „I allow callmebot to send me messages“ an die Nummer von callmebot.com und bekommt den Schlüssel zurück.</p>
+      </div>
+      <div class="row"><button class="btn ghost" id="ckTest">Test senden</button></div>
+      <p class="status-line" id="ckStatus"></p>
+    </div>
+    <div class="section">
       <h4>Alten Gemini-Chat übernehmen</h4>
       <p class="hint" style="margin-top:0">Exportierten Chat (z. B. als .md) auswählen. Satt liest ihn in Teilen und übernimmt Mahlzeiten, Gewicht, Training, Maße und Produkte. Bereits erfasste Tage werden übersprungen.</p>
       <div class="row"><button class="btn ghost" id="impBtn">Chat-Datei auswählen</button></div>
@@ -415,6 +437,15 @@ a{color:var(--accent)}
     <div class="section">
       <button class="btn danger" id="wipeBtn">Alle Daten löschen</button>
     </div>
+  </div>
+</div>
+
+<!-- Sicherung wählen -->
+<div class="sheet" id="restoreSheet">
+  <div class="sheet-head"><h2>Sicherung wählen</h2><button data-close>Abbrechen</button></div>
+  <div class="sheet-body">
+    <p class="hint" style="margin-top:0">Satt hebt pro Tag eine Sicherung auf. Wähle den Stand, zu dem du zurück möchtest. Die Daten auf diesem iPhone werden dabei ersetzt, die Sicherungen in der Cloud bleiben alle erhalten.</p>
+    <div id="versionList" style="display:grid;gap:8px"></div>
   </div>
 </div>
 
@@ -453,6 +484,14 @@ Die Nutzerin sieht den DATENBANK-Block nicht. Zitiere daraus niemals Kalorienwer
    Die Tageszeile im Code-Block gibst du weiterhin aus, aber ohne das SYNC-Feld.
 
 3) KALORIEN: Im "reply" stehen NIEMALS Kalorienzahlen, auch keine Spannen und nicht die Benchmark. Nährwerte gehören nur in "ops".
+   EHRLICHE EINSCHÄTZUNG (gilt auch untertags): Keine Zahlen heißt NICHT keine Einschätzung. Der Wert "SPIELRAUM HEUTE" in der DATENBANK ist verbindlich, rechne nicht selbst.
+   - Fragt die Nutzerin, ob etwas noch passt, schätze die Energie des Lebensmittels intern und vergleiche sie mit "Rest bis Benchmark".
+     Passt es nicht, sag das klar und VORHER, in Worten (z. B. "Das würde heute knapp über deinen Rahmen gehen. Eine halbe Portion passt gut."), und biete eine kleinere Menge oder Alternative an.
+     Beschwichtige nicht und sage nie "passt noch", wenn es nicht stimmt.
+   - Nach jeder verbuchten Mahlzeit hängst du an die kurze Antwort einen Halbsatz zum Spielraum an, sobald er MITTEL oder kleiner ist (z. B. "Für heute bleibt noch Platz für eine normale Mahlzeit." / "Jetzt ist nur noch ein kleiner Snack drin."). Bei VIEL nichts dazu sagen.
+   - Bei "ACHTUNG: schon früh am Tag …" weist du einmal ruhig darauf hin, damit der Abend entspannt bleibt.
+   - Ton: ehrlich, ruhig, ohne Schuld oder Drama. Einzelne Tage über dem Rahmen sind okay, aber sie soll es vorher wissen.
+   - Das gilt nicht in die andere Richtung: Ist abends noch VIEL Spielraum, sagst du ebenso ehrlich, dass noch etwas fehlt ("Warnung: Zu wenig!").
 
 4) OPERATIONEN (Datum immer "YYYY-MM-DD", Uhrzeit "HH:MM", Zahlen als Zahlen):
    - Mahlzeit verbuchen – JEDES Lebensmittel einzeln mit eigenen Nährwerten (Menge mit Einheit):
@@ -634,16 +673,38 @@ function md(src){
   return out.join('');
 }
 
+/* Spielraum-Stufe aus der Tagessumme (eine Quelle für Gemini-Kontext und Prüfbericht) */
+function levelFor(kcal){
+  const rest = Math.round(kcalGoal() - kcal);
+  if (rest <= -150) return {rest, key:'ÜBERSCHRITTEN', ampel:'rot', text:'ÜBERSCHRITTEN'};
+  if (rest <= 50)   return {rest, key:'AUSGESCHÖPFT', ampel:'rot', text:'AUSGESCHÖPFT'};
+  if (rest <= 300)  return {rest, key:'WENIG', ampel:'gelb', text:'WENIG (etwa ein kleiner Snack)'};
+  if (rest <= 650)  return {rest, key:'MITTEL', ampel:'grün', text:'MITTEL (etwa eine normale Mahlzeit)'};
+  return {rest, key:'VIEL', ampel:'grün', text:'VIEL'};
+}
+
+/* Kalorien-Benchmark: aus dem Prompt lesen (z. B. "1.750 kcal"), sonst 1750 */
+function kcalGoal(){
+  const m = settings.prompt.match(/(\d[\d.]{2,5})\s*kcal\s*(?:täglich|pro tag|am tag)/i) || settings.prompt.match(/kalorienziel[^\d]{0,20}(\d[\d.]{2,5})/i);
+  const v = m ? Number(m[1].replace(/\./g, '')) : NaN; return v > 800 && v < 5000 ? v : 1750;
+}
+
 /* ---------------- Lebensmittel & Training: Helfer ---------------- */
+function kcalOf(x){ // fehlt der Energiewert, aus den Makros berechnen statt 0 zu zählen
+  const k = num(x.kcal); if (k != null && k > 0) return k;
+  const p = num(x.p), c = num(x.c), f = num(x.f);
+  return (p ?? c ?? f) != null ? Math.round(4*(p||0) + 4*(c||0) + 9*(f||0)) : k;
+}
 function normFoods(arr){
-  return (Array.isArray(arr) ? arr : []).filter(x => x && x.name).map(x => ({
-    name:String(x.name).trim(), amount:String(x.amount ?? '').trim(),
-    kcal:num(x.kcal), p:num(x.p), c:num(x.c), f:num(x.f), fiber:num(x.fiber)
-  }));
+  return (Array.isArray(arr) ? arr : []).filter(x => x && x.name).map(x => {
+    const o = {name:String(x.name).trim(), amount:String(x.amount ?? '').trim(),
+      kcal:num(x.kcal), p:num(x.p), c:num(x.c), f:num(x.f), fiber:num(x.fiber)};
+    o.kcal = kcalOf(o); return o;
+  });
 }
 function recalcMeal(m){
   if (!m.foods?.length) return m;
-  for (const k of ['kcal','p','c','f','fiber']) m[k] = +m.foods.reduce((a, x) => a + (num(x[k]) || 0), 0).toFixed(1);
+  for (const k of ['kcal','p','c','f','fiber']) m[k] = +m.foods.reduce((a, x) => a + ((k === 'kcal' ? kcalOf(x) : num(x[k])) || 0), 0).toFixed(1);
   m.items = m.foods.map(x => (x.amount ? x.amount + ' ' : '') + x.name).join(', ');
   return m;
 }
@@ -671,7 +732,10 @@ async function importPlan(dump){
 }
 
 /* ---------------- Datenbank-Kontext für Gemini ---------------- */
-function sumMeals(ms){ const s = {kcal:0,p:0,c:0,f:0,fiber:0}; ms.forEach(m => { for (const k in s) s[k] += num(m[k]) || 0; }); return s; }
+function sumMeals(ms){ // immer aus den einzelnen Lebensmitteln rechnen (alte Mahlzeitensummen können zu niedrig sein)
+  const s = {kcal:0,p:0,c:0,f:0,fiber:0};
+  ms.forEach(m => mealFoods(m).forEach(x => { for (const k in s) s[k] += (k === 'kcal' ? kcalOf(x) : num(x[k])) || 0; }));
+  return s; }
 const r0 = n => Math.round(n);
 
 async function buildContext(){
@@ -701,6 +765,12 @@ async function buildContext(){
   tm.sort((a,b)=>(a.time||'').localeCompare(b.time||'')).forEach(m =>
     L.push(`[id ${m.id}] ${m.time||''} ${m.label||''}: ${foodLine(m)}`));
   L.push(`Summe heute: kcal ${r0(ts.kcal)} | Protein ${r0(ts.p)} g von ${PROTEIN_GOAL} g`);
+  if (!settings.paused) {
+    const goal = kcalGoal(), lv = levelFor(ts.kcal), rest = lv.rest, share = ts.kcal / goal, level = lv.text;
+    const hr = now.getHours() + now.getMinutes() / 60;
+    const pace = hr < 15 && share > 0.75 ? ' | ACHTUNG: schon früh am Tag ein Großteil verbraucht' : '';
+    L.push(`SPIELRAUM HEUTE (von der App exakt berechnet, verbindlich): ${level} | Rest bis Benchmark: ${rest} kcal (nur intern, nie nennen)${pace}`);
+  }
   if (dayMap[today]?.weight) L.push(`Gewicht heute: ${dayMap[today].weight} kg`);
 
   // Gestern im Detail (für Nachträge/Korrekturen)
@@ -935,6 +1005,102 @@ function parseModel(raw){
     if (a >= 0 && b > a) { try { const j = JSON.parse(s.slice(a, b+1)); return {reply:String(j.reply ?? ''), ops:Array.isArray(j.ops)?j.ops:[], last_date:j.last_date}; } catch {} }
     return {reply: s, ops: []};
   }
+}
+
+/* ---------------- Prüfbericht (/prüfen) ----------------
+   Geht per E-Mail (Web3Forms) oder WhatsApp (CallMeBot) an eine hinterlegte Person.
+   Im Chat erscheint nur eine Bestätigung ohne Zahlen. */
+const fmtK = v => v == null ? '–' : Math.round(v).toLocaleString('de-DE');
+const fmtM = v => v == null ? '–' : fmtNum(v, 1);
+const AMPEL_RE = {
+  rot:  /(überschritten|drüber|über (dem|deinen|deinem) (rahmen|ziel)|ausgeschöpft|nicht mehr (rein|drin|passt)|passt nicht|puffer genutzt|nichts mehr)/i,
+  gelb: /(knapp|kleine[nr]? snack|nur noch (ein|wenig)|wenig (platz|spielraum)|halbe portion)/i,
+  grün: /(zielkorridor|passt (gut|noch|locker)|noch (gut |genug )?(platz|spielraum)|normale mahlzeit|viel (platz|spielraum)|im (grünen|rahmen)|zu wenig)/i
+};
+function claimAmpel(t){ for (const a of ['rot', 'gelb', 'grün']) if (AMPEL_RE[a].test(t)) return a; return null; }
+function claimSentences(t){
+  return String(t || '').replace(/```[\s\S]*?```/g, ' ').replace(/[*_#>|]/g, '').split(/(?<=[.!?])\s+|\n+/)
+    .map(x => x.trim()).filter(x => x && claimAmpel(x)).slice(0, 3);
+}
+async function buildCheckReport(date){
+  const [meals, msgs, day] = await Promise.all([all('meals'), all('messages'), get('days', date)]);
+  const ms = meals.filter(m => m.date === date).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const t = sumMeals(ms), goal = kcalGoal(), lv = levelFor(t.kcal);
+  const L = [];
+  L.push(`*Satt · Prüfbericht ${fmtDate(date)}${date.slice(0, 4)}* (erstellt ${hhmm()} Uhr)`, '');
+  L.push(`Benchmark: ${fmtK(goal)} kcal`);
+  L.push(`Gegessen: ${fmtK(t.kcal)} kcal  →  Rest: ${fmtK(lv.rest)} kcal`);
+  L.push(`Makros gesamt: E ${fmtM(t.p)} g · K ${fmtM(t.c)} g · F ${fmtM(t.f)} g · Ballast ${fmtM(t.fiber)} g`);
+  L.push(`App-Einschätzung: ${lv.text} (${lv.ampel})`);
+  if (day?.weight) L.push(`Gewicht: ${fmtNum(day.weight, 2)} kg`);
+  L.push('', '*Gegessen*');
+  if (!ms.length) L.push('Noch nichts verbucht.');
+  const estimated = [];
+  for (const m of ms) {
+    const mt = sumMeals([m]);
+    L.push('', `${m.time || ''} ${m.label || ''} – ${fmtK(mt.kcal)} kcal`.trim());
+    for (const x of mealFoods(m)) {
+      const k = kcalOf(x); if (num(x.kcal) == null && k != null) estimated.push(x.name);
+      const iss = foodIssues(x);
+      L.push(`• ${x.amount ? x.amount + ' ' : ''}${x.name}: ${fmtK(k)} kcal | E ${fmtM(x.p)} · K ${fmtM(x.c)} · F ${fmtM(x.f)}${iss.length ? '  ⚠ ' + iss.join('; ') : ''}`);
+    }
+  }
+  // Was Gemini behauptet hat, jeweils mit dem echten Stand zu diesem Zeitpunkt
+  L.push('', '*Was Gemini gesagt hat*');
+  const dayStart = parseISO(date).getTime(), dayEnd = dayStart + 864e5;
+  const replies = msgs.filter(m => m.role === 'model' && !m.error && !m.check && m.ts >= dayStart && m.ts < dayEnd);
+  let n = 0, hits = 0, misses = 0;
+  for (const r of replies) {
+    const sents = claimSentences(r.text); if (!sents.length) continue;
+    const then = levelFor(sumMeals(ms.filter(m => !m.created || m.created <= r.ts)).kcal);
+    for (const sTxt of sents) {
+      const a = claimAmpel(sTxt);
+      const ok = a === then.ampel || (a === 'grün' && /zu wenig/i.test(sTxt) && then.key === 'VIEL');
+      ok ? hits++ : misses++; n++;
+      L.push(`${hhmm(new Date(r.ts))}: „${sTxt}“`);
+      L.push(`   → Gemini: ${a} | tatsächlich damals: ${then.key} (${then.ampel}, Rest ${fmtK(then.rest)} kcal) ${ok ? '✅ stimmt' : '❌ stimmt nicht'}`);
+    }
+  }
+  if (!n) L.push('Heute keine Aussage zum Spielraum gefunden.');
+  if (day?.status) L.push('', `Tagesstatus laut Gemini: ${day.status}`);
+  L.push('', `*Fazit:* ${n ? `${hits} von ${n} Aussagen passen zur Rechnung der App.` : 'Kein Vergleich möglich.'}`);
+  if (estimated.length) L.push(`Hinweis: Für ${estimated.join(', ')} hat Gemini keine Kalorien angegeben, die App hat sie aus den Makros berechnet.`);
+  return {text:L.join('\n'), subject:`Satt Prüfbericht ${fmtDate(date)} – ${fmtK(t.kcal)} / ${fmtK(goal)} kcal`};
+}
+const checkCfg = { get via(){ return LS.get('ckVia', 'off'); }, get mailKey(){ return LS.get('ckMailKey', ''); },
+  get waPhone(){ return LS.get('ckWaPhone', ''); }, get waKey(){ return LS.get('ckWaKey', ''); } };
+async function deliverReport(subject, text){
+  if (checkCfg.via === 'mail') {
+    if (!checkCfg.mailKey) throw new Error('Für den E-Mail-Versand fehlt der Web3Forms-Schlüssel.');
+    const res = await fetch('https://api.web3forms.com/submit', {method:'POST', headers:{'Content-Type':'application/json', 'Accept':'application/json'},
+      body:JSON.stringify({access_key:checkCfg.mailKey, subject, from_name:'Satt', message:text.replace(/\*/g, '')})});
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || j.success === false) throw new Error('E-Mail-Versand fehlgeschlagen: ' + (j.message || res.status));
+    return 'per E-Mail';
+  }
+  if (checkCfg.via === 'whatsapp') {
+    if (!checkCfg.waPhone || !checkCfg.waKey) throw new Error('Für WhatsApp fehlen Telefonnummer oder CallMeBot-Schlüssel.');
+    const chunks = []; let cur = '';
+    for (const line of text.split('\n')) { if ((cur + line).length > 1200) { chunks.push(cur); cur = ''; } cur += line + '\n'; }
+    if (cur.trim()) chunks.push(cur);
+    for (const c of chunks) { // CallMeBot erlaubt keine Antwort an den Browser: Nachricht wird "blind" abgeschickt
+      await fetch(`https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(checkCfg.waPhone)}&text=${encodeURIComponent(c)}&apikey=${encodeURIComponent(checkCfg.waKey)}`, {mode:'no-cors'});
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    return 'per WhatsApp';
+  }
+  throw new Error('Der Prüfbericht ist noch nicht eingerichtet (Einstellungen → Prüfbericht).');
+}
+async function sendCheckReport(cmd){
+  const say = async text => { const m = {role:'model', check:true, ts:Date.now(), text}; m.id = await add('messages', m); appendMsg(m); toBottom(); };
+  let date = isoDate();
+  if (/gestern/i.test(cmd)) { const d = new Date(); d.setDate(d.getDate() - 1); date = isoDate(d); }
+  const m = cmd.match(/(\d{4}-\d{2}-\d{2})/); if (m) date = m[1];
+  try {
+    const r = await buildCheckReport(date);
+    const how = await deliverReport(r.subject, r.text);
+    await say(`🔒 Prüfbericht für ${fmtDate(date)} wurde ${how} verschickt.`);
+  } catch (e) { await say('🔒 Prüfbericht konnte nicht gesendet werden: ' + (e.message || e)); }
 }
 
 /* ---------------- Alten Chat übernehmen ---------------- */
@@ -1178,6 +1344,7 @@ const hideTyping = () => $('#typing')?.remove();
 async function send(){
   const text = input.value.trim(); const img = pendingImg;
   if ((!text && !img) || busy) return;
+  if (/^\/pr(ü|ue|u)fen\b/i.test(text) && !img) { input.value = ''; autoGrow(); return sendCheckReport(text); }
   busy = true; sendBtn.disabled = true;
   input.value = ''; autoGrow(); clearImg();
   const m = {role:'user', ts:Date.now(), text, img: img ? img.thumb : null};
@@ -1663,7 +1830,15 @@ function loadSettingsUI(){
   $('#sPrompt').value = settings.prompt; $('#sCtx').value = settings.ctx; $('#sThink').value = LS.get('think','low'); $('#sVoiceSend').value = LS.get('voiceSend','review'); renderPause();
   $('#gRepo').value = LS.get('gRepo',''); $('#gToken').value = cloud.token; $('#gPass').value = cloud.pass; renderBackupStatus();
   $('#sLocalRemind').value = String(LS.get('localRemind', 3)); renderLocalStatus(); renderCheckStatus();
+  $('#ckVia').value = checkCfg.via; $('#ckMailKey').value = checkCfg.mailKey; $('#ckWaPhone').value = checkCfg.waPhone; $('#ckWaKey').value = checkCfg.waKey; ckToggle();
 }
+function ckToggle(){ const v = $('#ckVia').value; $('#ckMailBox').hidden = v !== 'mail'; $('#ckWaBox').hidden = v !== 'whatsapp'; }
+$('#ckVia').onchange = ckToggle;
+function saveCheckFields(){ LS.set('ckVia', $('#ckVia').value); LS.set('ckMailKey', $('#ckMailKey').value.trim()); LS.set('ckWaPhone', $('#ckWaPhone').value.replace(/[^\d+]/g, '')); LS.set('ckWaKey', $('#ckWaKey').value.trim()); }
+$('#ckTest').onclick = async () => { saveCheckFields(); const st = $('#ckStatus'); st.className = 'status-line'; st.textContent = 'Sende Test …';
+  try { const how = await deliverReport('Satt: Test', 'Satt: Test des Prüfberichts. Wenn diese Nachricht ankommt, funktioniert /prüfen.');
+    st.className = 'status-line ok'; st.textContent = `✓ Test ${how} abgeschickt.${checkCfg.via === 'whatsapp' ? ' Bitte prüfen, ob er angekommen ist.' : ''}`; }
+  catch (e) { st.className = 'status-line bad'; st.textContent = e.message; } };
 $('#impBtn').onclick = () => $('#impFile').click();
 $('#impFile').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; saveSettings(); closeSheets(); importChat((await f.text()).trim(), f.name); };
 $('#checkNow').onclick = async () => { saveSettings(); renderCheckStatus('Prüfe …'); await plausibility(null, {full:true}); };
@@ -1677,7 +1852,7 @@ function saveSettings(){
   const p = $('#sPrompt').value; const def = $('#defaultPrompt').textContent;
   if (p.trim() && p !== def) LS.set('prompt', p); else localStorage.removeItem('coach.prompt');
   const c = parseInt($('#sCtx').value, 10); LS.set('ctx', isNaN(c) ? 30 : Math.min(200, Math.max(6, c)));
-  LS.set('think', $('#sThink').value); LS.set('voiceSend', $('#sVoiceSend').value);
+  LS.set('think', $('#sThink').value); LS.set('voiceSend', $('#sVoiceSend').value); saveCheckFields();
   saveSettingsFields();
   if (cloud.on && !LS.get('gLast', 0)) scheduleBackup(500);
   if (!hadKey && settings.key) renderChat();
@@ -1750,7 +1925,8 @@ $('#wipeBtn').onclick = async () => {
 };
 
 async function buildDump(withImages){
-  const dump = {v:1, app:'satt', at:new Date().toISOString(), settings:{model:settings.model, prompt:LS.get('prompt',null), ctx:settings.ctx, paused:settings.paused, resumedAt:LS.get('resumedAt',null)}};
+  const dump = {v:1, app:'satt', at:new Date().toISOString(), settings:{model:settings.model, prompt:LS.get('prompt',null), ctx:settings.ctx, paused:settings.paused, resumedAt:LS.get('resumedAt',null),
+    check:{via:checkCfg.via, mailKey:checkCfg.mailKey, waPhone:checkCfg.waPhone, waKey:checkCfg.waKey}}};
   for (const s of STORES) dump[s] = await all(s);
   if (!withImages) dump.messages = dump.messages.map(m => m.img ? {...m, img:null, hadImg:true} : m);
   return dump;
@@ -1761,6 +1937,7 @@ async function importDump(dump){
   const st = dump.settings || {};
   if (st.model) LS.set('model', st.model); if (st.prompt) LS.set('prompt', st.prompt);
   if (st.ctx) LS.set('ctx', st.ctx); LS.set('paused', !!st.paused); if (st.resumedAt) LS.set('resumedAt', st.resumedAt);
+  if (st.check) { LS.set('ckVia', st.check.via || 'off'); LS.set('ckMailKey', st.check.mailKey || ''); LS.set('ckWaPhone', st.check.waPhone || ''); LS.set('ckWaKey', st.check.waKey || ''); }
   LS.set('seeded', true);
   loadSettingsUI(); renderPause(); await renderChat(); scheduleBackup();
 }
@@ -1802,13 +1979,10 @@ async function gh(path, opts = {}){
   if (res.status === 403) throw new Error('Der Token darf nicht schreiben. Beim Token „Contents: Read and write“ erlauben.');
   return res;
 }
-async function ghPut(path, text, guard = false){
+async function ghPut(path, text){
   let sha;
   const head = await gh(path);
-  if (head.ok) {
-    if (guard) throw new Error('In der Cloud liegt schon eine Sicherung. Lade sie zuerst mit „Aus Cloud laden“, oder tippe „Jetzt sichern“, um sie mit den Daten dieses iPhones zu überschreiben.');
-    sha = (await head.json()).sha;
-  }
+  if (head.ok) sha = (await head.json()).sha;
   else if (head.status === 404) {
     const repoRes = await fetch(`https://api.github.com/repos/${cloud.repo}`, {headers:{'Authorization':`Bearer ${cloud.token}`, 'Accept':'application/vnd.github+json'}});
     if (repoRes.status === 404) throw new Error(`Repository „${cloud.repo}“ nicht gefunden, oder der Token hat keinen Zugriff darauf.`);
@@ -1830,9 +2004,16 @@ async function runBackup(force = false){
     const dump = await buildDump(false);
     if (!force && !dump.meals.length && !dump.days.length && !dump.measures.length && !dump.training.length) { backupRunning = false; renderBackupStatus(); return false; }
     const env = JSON.stringify(await encryptObj(dump));
-    // Schutz: ein frisch eingerichtetes Gerät überschreibt nie automatisch eine bestehende Cloud-Sicherung
-    await ghPut('satt/aktuell.json', env, !force && !LS.get('gLast', 0));
-    await ghPut(`satt/verlauf/${isoDate()}.json`, env);
+    // Erste Sicherung von diesem iPhone in dieses Repository: vorhandene Sicherung vorher als Kopie aufheben (nichts geht verloren)
+    const archKey = 'gArchived:' + cloud.repo;
+    if (!LS.get(archKey, false)) {
+      const old = await gh('satt/aktuell.json', {raw:true});
+      if (old.ok) { const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+        await ghPut(`satt/verlauf/vor-ueberschreiben-${stamp}.json`, await old.text()); }
+      LS.set(archKey, true);
+    }
+    await ghPut('satt/aktuell.json', env);                 // immer die neueste Fassung
+    await ghPut(`satt/verlauf/${isoDate()}.json`, env);    // eine Kopie pro Tag zum Zurückgehen
     LS.set('gLast', Date.now()); LS.set('gErr', null); if (!backupAgain) LS.set('gDirty', false);
     return true;
   } catch (e) {
@@ -1864,18 +2045,32 @@ $('#gNow').onclick = async () => { saveSettingsFields(); if (!cloud.on) { alert(
 $('#gRestore').onclick = async () => {
   saveSettingsFields();
   if (!cloud.on) { alert('Bitte Repository, Token und Passwort ausfüllen.'); return; }
+  const list = $('#versionList'); list.innerHTML = '<p class="hint">Lade Sicherungen …</p>'; openSheet('#restoreSheet');
   try {
-    const res = await gh('satt/aktuell.json', {raw:true});
+    const res = await gh('satt/verlauf');
+    const files = res.ok ? (await res.json()).filter(f => /\.json$/.test(f.name)).map(f => f.name).sort((a, b) => (/^vor/.test(a) - /^vor/.test(b)) || b.localeCompare(a)) : [];
+    const label = n => { const m = n.match(/^(\d{4})-(\d{2})-(\d{2})\.json$/); if (m) return `Stand vom ${fmtDate(`${m[1]}-${m[2]}-${m[3]}`)}${m[1]}`;
+      const v = n.match(/vor-ueberschreiben-(\d{4})-(\d{2})-(\d{2})/); return v ? `Ältere Sicherung (aufgehoben am ${v[3]}.${v[2]}.)` : n; };
+    list.innerHTML = `<button class="btn" data-ver="satt/aktuell.json">Neuester Stand</button>` +
+      files.map(f => `<button class="btn ghost" data-ver="satt/verlauf/${f}">${esc(label(f))}</button>`).join('');
+    $$('[data-ver]', list).forEach(b => b.onclick = () => restoreFrom(b.dataset.ver));
+  } catch (e) { list.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+};
+async function restoreFrom(path){
+  try {
+    const res = await gh(path, {raw:true});
     if (res.status === 404) throw new Error('In diesem Repository liegt noch keine Sicherung.');
     if (!res.ok) throw new Error(`GitHub-Fehler ${res.status}.`);
     const env = JSON.parse(await res.text());
-    const dump = await decryptEnv(env, cloud.pass);
+    if (!env.data || !env.salt) throw new Error('Diese Datei ist keine lesbare Satt-Sicherung.');
+    let dump; try { dump = await decryptEnv(env, cloud.pass); }
+    catch { const p = prompt('Diese Sicherung wurde mit einem anderen Passwort verschlüsselt. Bitte dieses Passwort eingeben:'); if (p === null) return; dump = await decryptEnv(env, p); }
     const when = new Date(env.at).toLocaleString('de-DE', {dateStyle:'medium', timeStyle:'short'});
     if (!confirm(`Sicherung vom ${when} gefunden. Alle Daten auf diesem iPhone damit ersetzen?`)) return;
-    LS.set('gSalt', env.salt); keyCache = null; LS.set('gLast', Date.now()); LS.set('gErr', null);
-    await importDump(dump); alert('Wiederhergestellt.');
+    LS.set('gSalt', env.salt); keyCache = null; LS.set('gLast', Date.now()); LS.set('gErr', null); LS.set('gArchived:' + cloud.repo, true);
+    closeSheets(); await importDump(dump); alert('Wiederhergestellt.');
   } catch (e) { alert(e.message || String(e)); }
-};
+}
 function saveSettingsFields(){
   const oldPass = cloud.pass;
   LS.set('gRepo', $('#gRepo').value.trim()); LS.set('gToken', $('#gToken').value.trim()); LS.set('gPass', $('#gPass').value);
@@ -1911,7 +2106,17 @@ async function seed(){
     if (document.visibilityState === 'hidden' && backupTimer) { clearTimeout(backupTimer); backupTimer = null; runBackup(); } // beim Wegwischen sofort sichern
     if (document.visibilityState === 'visible' && needsBackup()) scheduleBackup(1000); // Nachholen beim Öffnen
   });
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    // Selbst-Update: neue Version im Hintergrund holen und beim nächsten passenden Moment still neu laden
+    const hadController = !!navigator.serviceWorker.controller; let reloading = false, pendingReload = false;
+    const safeReload = () => { if (reloading) return; if (busy || rec || importing || $('.sheet.open')) { pendingReload = true; return; } reloading = true; location.reload(); };
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) safeReload(); });
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      const check = () => reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { check(); if (pendingReload) safeReload(); } });
+      setInterval(check, 30 * 60e3);
+    }).catch(() => {});
+  }
 })();
 </script>
 </body>
