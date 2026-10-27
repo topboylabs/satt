@@ -1039,53 +1039,76 @@ async function buildCheckReport(date){
   const [meals, msgs, day] = await Promise.all([all('meals'), all('messages'), get('days', date)]);
   const ms = meals.filter(m => m.date === date).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
   const t = sumMeals(ms), goal = kcalGoal(), lv = levelFor(t.kcal);
-  const L = [];
-  L.push(`*Satt · Prüfbericht ${fmtDate(date)}${date.slice(0, 4)}* (erstellt ${hhmm()} Uhr)`, '');
-  L.push(`Benchmark: ${fmtK(goal)} kcal`);
-  L.push(`Gegessen: ${fmtK(t.kcal)} kcal  →  Rest: ${fmtK(lv.rest)} kcal`);
-  L.push(`Makros gesamt: E ${fmtM(t.p)} g · K ${fmtM(t.c)} g · F ${fmtM(t.f)} g · Ballast ${fmtM(t.fiber)} g`);
-  L.push(`App-Einschätzung: ${lv.text} (${lv.ampel})`);
-  if (day?.weight) L.push(`Gewicht: ${fmtNum(day.weight, 2)} kg`);
-  L.push('', '*Gegessen*');
-  if (!ms.length) L.push('Noch nichts verbucht.');
-  const estimated = [];
-  for (const m of ms) {
-    const mt = sumMeals([m]);
-    L.push('', `${m.time || ''} ${m.label || ''} – ${fmtK(mt.kcal)} kcal`.trim());
-    const VIA = {chat:'Chat', check:'automatische Prüfung', import:'Import alter Chat'};
-    if (m.src) L.push(`   Quelle: ${VIA[m.src.via] || m.src.via}, ${hhmm(new Date(m.src.at))} Uhr${m.src.msg ? ` – „${m.src.msg}“` : ''}`);
-    else if (m.created) L.push(`   Quelle: eingetragen ${hhmm(new Date(m.created))} Uhr (vor Herkunfts-Protokoll)`);
-    for (const hst of (m.history || [])) {
-      const moved = hst.before?.date && hst.before.date !== m.date ? ` (verschoben vom ${fmtDate(hst.before.date)})` : '';
-      L.push(`   Geändert: ${VIA[hst.via] || hst.via}, ${fmtDate(isoDate(new Date(hst.at)))} ${hhmm(new Date(hst.at))} Uhr${moved}${hst.before ? ` – vorher ${fmtK(hst.before.kcal)} kcal` : ''}`);
-    }
-    for (const x of mealFoods(m)) {
-      const k = kcalOf(x); if (num(x.kcal) == null && k != null) estimated.push(x.name);
-      const iss = foodIssues(x);
-      L.push(`• ${x.amount ? x.amount + ' ' : ''}${x.name}: ${fmtK(k)} kcal | E ${fmtM(x.p)} · K ${fmtM(x.c)} · F ${fmtM(x.f)}${iss.length ? '  ⚠ ' + iss.join('; ') : ''}`);
-    }
-  }
-  // Was Gemini behauptet hat, jeweils mit dem echten Stand zu diesem Zeitpunkt
-  L.push('', '*Was Gemini gesagt hat*');
-  const dayStart = parseISO(date).getTime(), dayEnd = dayStart + 864e5;
+  const LINE = '━━━━━━━━━━━━━━━━━━━━';
+  // Stufen in Alltagssprache
+  const PLAIN = {VIEL:'noch viel Platz', MITTEL:'noch Platz für eine normale Mahlzeit', WENIG:'nur noch Platz für einen kleinen Snack',
+                 'AUSGESCHÖPFT':'Ziel genau erreicht, nichts mehr frei', 'ÜBERSCHRITTEN':'über dem Ziel'};
+  const restText = l => l.rest >= 0 ? `noch ${fmtK(l.rest)} kcal frei` : `${fmtK(-l.rest)} kcal ZU VIEL`;
+  const d = parseISO(date);
+
+  // Gemini-Aussagen prüfen
+  const dayStart = d.getTime(), dayEnd = dayStart + 864e5;
   const replies = msgs.filter(m => m.role === 'model' && !m.error && !m.check && m.ts >= dayStart && m.ts < dayEnd);
-  let n = 0, hits = 0, misses = 0;
+  const claims = [];
   for (const r of replies) {
     const sents = claimSentences(r.text); if (!sents.length) continue;
-    const then = levelFor(sumMeals(ms.filter(m => !m.created || m.created <= r.ts)).kcal);
+    const eaten = sumMeals(ms.filter(m => !m.created || m.created <= r.ts)).kcal, then = levelFor(eaten);
     for (const sTxt of sents) {
-      const a = claimAmpel(sTxt);
-      const ok = a === then.ampel || (a === 'grün' && /zu wenig/i.test(sTxt) && then.key === 'VIEL');
-      ok ? hits++ : misses++; n++;
-      L.push(`${hhmm(new Date(r.ts))}: „${sTxt}“`);
-      L.push(`   → Gemini: ${a} | tatsächlich damals: ${then.key} (${then.ampel}, Rest ${fmtK(then.rest)} kcal) ${ok ? '✅ stimmt' : '❌ stimmt nicht'}`);
+      const a = claimAmpel(sTxt), tooLittle = /zu wenig/i.test(sTxt);
+      const meaning = tooLittle ? 'es wurde zu wenig gegessen' : a === 'grün' ? 'es passt noch gut rein' : a === 'gelb' ? 'es wird knapp' : 'es ist voll bzw. schon zu viel';
+      const ok = tooLittle ? then.key === 'VIEL' : a === then.ampel;
+      claims.push({time:hhmm(new Date(r.ts)), sTxt, meaning, ok, eaten, then});
     }
   }
-  if (!n) L.push('Heute keine Aussage zum Spielraum gefunden.');
-  if (day?.status) L.push('', `Tagesstatus laut Gemini: ${day.status}`);
-  L.push('', `*Fazit:* ${n ? `${hits} von ${n} Aussagen passen zur Rechnung der App.` : 'Kein Vergleich möglich.'}`);
-  if (estimated.length) L.push(`Hinweis: Für ${estimated.join(', ')} hat Gemini keine Kalorien angegeben, die App hat sie aus den Makros berechnet.`);
-  return {text:L.join('\n'), subject:`Satt Prüfbericht ${fmtDate(date)} – ${fmtK(t.kcal)} / ${fmtK(goal)} kcal`};
+  const wrong = claims.filter(c => !c.ok);
+
+  const L = [];
+  L.push(`SATT – Prüfbericht für ${WDL[d.getDay()]}, ${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`, '');
+  L.push('KURZ GESAGT');
+  L.push(ms.length ? `👉 Gegessen: ${fmtK(t.kcal)} von ${fmtK(goal)} kcal. Also ${restText(lv)} (${PLAIN[lv.key]}).` : '👉 Heute wurde noch nichts eingetragen.');
+  if (!claims.length) L.push('👉 Gemini hat heute nichts zum Spielraum gesagt, es gibt also nichts zu überprüfen.');
+  else if (!wrong.length) L.push(`👉 Gemini lag heute richtig: ${claims.length === 1 ? 'die eine Aussage' : `alle ${claims.length} Aussagen`} zum Spielraum ${claims.length === 1 ? 'stimmt' : 'stimmen'}.`);
+  else L.push(`👉 Achtung: ${wrong.length} von ${claims.length} Aussagen von Gemini ${wrong.length === 1 ? 'war' : 'waren'} FALSCH (Details unten).`);
+  if (day?.weight) L.push(`👉 Gewicht heute: ${fmtNum(day.weight, 2)} kg`);
+
+  L.push('', LINE, 'WAS GEGESSEN WURDE', '');
+  if (!ms.length) L.push('Nichts eingetragen.');
+  const notes = [];
+  for (const m of ms) {
+    const mt = sumMeals([m]);
+    L.push(`${m.time || '–'} ${m.label || 'Mahlzeit'} (${fmtK(mt.kcal)} kcal)`);
+    for (const x of mealFoods(m)) {
+      const k = kcalOf(x);
+      L.push(`  • ${x.amount ? x.amount + ' ' : ''}${x.name}: ${fmtK(k)} kcal`);
+      L.push(`     Eiweiß ${fmtM(x.p)} g · Kohlenhydrate ${fmtM(x.c)} g · Fett ${fmtM(x.f)} g`);
+      if (num(x.kcal) == null && k != null) notes.push(`${x.name}: Gemini hat keine Kalorien angegeben, die App hat sie aus Eiweiß, Kohlenhydraten und Fett berechnet.`);
+      const iss = foodIssues(x); if (iss.length) notes.push(`${x.name}: Werte wirken unplausibel (${iss.join('; ')}).`);
+    }
+    L.push('');
+  }
+  if (ms.length) L.push(`GESAMT: ${fmtK(t.kcal)} kcal · Eiweiß ${fmtM(t.p)} g · Kohlenhydrate ${fmtM(t.c)} g · Fett ${fmtM(t.f)} g`);
+
+  L.push('', LINE, 'HAT GEMINI DIE WAHRHEIT GESAGT?', '');
+  if (!claims.length) L.push('Keine Aussage zum Spielraum gefunden.');
+  for (const c of claims) {
+    L.push(`${c.time} Uhr – Gemini sagte: „${c.sTxt}“`);
+    L.push(`  Gemeint war: ${c.meaning}.`);
+    L.push(`  Wirklich: zu dem Zeitpunkt waren ${fmtK(c.eaten)} kcal gegessen, also ${restText(c.then)}.`);
+    L.push(c.ok ? '  ✅ RICHTIG' : '  ❌ FALSCH', '');
+  }
+  if (day?.status) L.push(`Tagesbewertung von Gemini: „${day.status}“ – laut App: ${PLAIN[lv.key]}.`);
+
+  // Details für Sonderfälle ganz unten
+  const VIA = {chat:'aus dem Chat', check:'von der automatischen Prüfung', import:'aus dem alten Gemini-Chat'};
+  for (const m of ms) for (const hst of (m.history || [])) {
+    const moved = hst.before?.date && hst.before.date !== m.date ? `, vorher am ${fmtDate(hst.before.date)}` : '';
+    notes.push(`${m.time} ${m.label || 'Mahlzeit'} wurde ${VIA[hst.via] || ''} geändert (${hhmm(new Date(hst.at))} Uhr, vorher ${fmtK(hst.before?.kcal)} kcal${moved}).`);
+  }
+  for (const m of ms) if (m.src?.via === 'import') notes.push(`${m.time} ${m.label || 'Mahlzeit'} stammt aus dem Import des alten Gemini-Chats.`);
+  if (notes.length) { L.push('', LINE, 'HINWEISE'); notes.forEach(n => L.push('• ' + n)); }
+  L.push('', `(erstellt ${hhmm()} Uhr · Kalorienziel ${fmtK(goal)} kcal)`);
+  const subj = `Satt ${fmtDate(date)}: ${fmtK(t.kcal)} von ${fmtK(goal)} kcal` + (claims.length ? (wrong.length ? ` · ❌ Gemini ${wrong.length}× falsch` : ' · ✅ Gemini richtig') : '');
+  return {text:L.join('\n'), subject:subj};
 }
 const checkCfg = { get via(){ return LS.get('ckVia', 'off'); }, get mailKey(){ return LS.get('ckMailKey', ''); },
   get waPhone(){ return LS.get('ckWaPhone', ''); }, get waKey(){ return LS.get('ckWaKey', ''); } };
@@ -1093,7 +1116,7 @@ async function deliverReport(subject, text){
   if (checkCfg.via === 'mail') {
     if (!checkCfg.mailKey) throw new Error('Für den E-Mail-Versand fehlt der Web3Forms-Schlüssel.');
     const res = await fetch('https://api.web3forms.com/submit', {method:'POST', headers:{'Content-Type':'application/json', 'Accept':'application/json'},
-      body:JSON.stringify({access_key:checkCfg.mailKey, subject, from_name:'Satt', message:text.replace(/\*/g, '')})});
+      body:JSON.stringify({access_key:checkCfg.mailKey, subject, from_name:'Satt', message:text})});
     const j = await res.json().catch(() => ({}));
     if (!res.ok || j.success === false) throw new Error('E-Mail-Versand fehlgeschlagen: ' + (j.message || res.status));
     return 'per E-Mail';
